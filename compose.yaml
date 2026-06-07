@@ -1,0 +1,37 @@
+# Nombre del proyecto de compose (asi el nombre de la carpeta no se usa para
+# nombrar la imagen/red/containers).
+name: integration
+
+services:
+  simulacion:
+    build: .
+    image: integration-sim:latest
+    container_name: integration
+    network_mode: host
+    ipc: host
+    privileged: true
+    environment:
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      # AISLAMIENTO DDS: con network_mode=host el trafico DDS sale por la red del robot.
+      # El robot real corre en ROS_DOMAIN_ID=0; el sim DEBE ir en otro dominio y, ademas,
+      # ROS_LOCALHOST_ONLY=1 confina el DDS al loopback para que NUNCA llegue al robot.
+      # (42 = sim Gazebo; distinto de 0=robot y 30=Isaac).
+      - ROS_DOMAIN_ID=42
+      - ROS_LOCALHOST_ONLY=1
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ./src:/ros2_ws/src:rw
+      # Tareas de navegacion probabilistica (Kalman + mapa de ocupacion).
+      - ./tareas:/ros2_ws/tareas:rw
+      - /dev/input:/dev/input:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    stdin_open: true
+    tty: true

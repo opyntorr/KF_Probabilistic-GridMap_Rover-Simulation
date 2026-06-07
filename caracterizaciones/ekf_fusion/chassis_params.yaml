@@ -1,0 +1,25 @@
+# Calibración real tomada del JetAuto (jetauto_controller/config/calibrate_params.yaml):
+#   go_factor=0.90, turn_factor=0.93, linear/angular_correction=1.0
+jetauto_chassis:
+  ros__parameters:
+    i2c_bus: 7              # Orin Nano 40-pin pines 3/5 (SDA/SCL) = /dev/i2c-7
+    motor_type: 3          # JGB37 encoder motor
+    wheelbase_a: 103.0     # mm
+    wheelbase_b: 97.0      # mm
+    wheel_diameter: 96.5   # mm
+    pulse_per_cycle: 4320.0
+    go_factor: 0.90
+    turn_factor: 0.93
+    linear_correction_factor: 1.0
+    angular_correction_factor: 1.0
+    control_rate: 50.0
+    cmd_vel_timeout: 0.5
+    odom_frame_id: odom
+    base_frame_id: base_footprint
+    publish_tf: false      # el EKF publica odom->base_footprint
+
+imu_node:
+  ros__parameters:
+    i2c_bus: 7
+    frame_id: imu_link
+    freq: 50.0

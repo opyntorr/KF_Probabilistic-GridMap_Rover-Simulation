@@ -1,0 +1,20 @@
+IMU /imu/data_raw: 1799979 muestras, 600.0 min, fs~50.0 Hz
+
+GYRO x: bias = -0.2452 deg/s (-0.004279 rad/s) | outliers descartados = 0.00%
+         ARW = 0.826 deg/sqrt(hr) | bias instability = 8.34 deg/hr (@tau=395.5s)
+GYRO y: bias = 0.1551 deg/s (0.002707 rad/s) | outliers descartados = 7.60%
+         ARW = 1.597 deg/sqrt(hr) | bias instability = 13.45 deg/hr (@tau=8990.1s)
+GYRO z: bias = 0.1988 deg/s (0.003470 rad/s) | outliers descartados = 0.00%
+         ARW = 1.062 deg/sqrt(hr) | bias instability = 5.96 deg/hr (@tau=470.4s)
+
+ACCEL x: mediana = 0.1987 m/s^2
+ACCEL y: mediana = 0.1245 m/s^2
+ACCEL z: mediana = 10.0030 m/s^2
+
+=== Drift de bias del giro (mediana por ventana de 60 s) ===
+  gyro x: rango del bias = 0.0611 deg/s a lo largo de la captura
+  gyro y: rango del bias = 0.0229 deg/s a lo largo de la captura
+  gyro z: rango del bias = 0.0496 deg/s a lo largo de la captura
+
+USO: el bias (sobre todo gyro z) -> restar/EKF; ARW+bias instability -> robot_localization
+     imu0 noise + process_noise_covariance y ganancias de madgwick.

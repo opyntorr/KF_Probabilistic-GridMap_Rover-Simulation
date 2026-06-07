@@ -1,0 +1,113 @@
+= Filtro de Kalman + Mapa de Ocupación Probabilístico — Simulación de Rover
+:toc: macro
+:toclevels: 2
+:sectnums:
+:icons: font
+
+Dos actividades de navegación probabilística sobre un rover diferencial
+generalizado (modelo de Díaz & Kelly), implementadas primero como *simulación
+pura en Python* y luego trasladadas a *Gazebo* (ROS 2 Humble) para que sean lo
+más *sim-to-real* posible, inyectando el ruido **medido** de los sensores de un
+robot Hiwonder JetAuto real.
+
+. *Filtro de Kalman en tiempo continuo* (Kalman–Bucy) que estima el estado del
+  rover y cierra con él un controlador de seguimiento de trayectoria.
+. *Mapa de ocupación probabilístico* (log-odds) construido con un sensor de rango
+  simulado.
+
+toc::[]
+
+== ¿Qué hay en el repositorio?
+
+[source]
+----
+.
+├── tareas/                       # Simulación pura en Python (numpy/scipy/matplotlib)
+│   ├── comun/
+│   │   ├── rover_model.py         # cinemática generalizada de Kelly (compartida)
+│   │   └── sensor_models.py       # ruido REAL de los sensores (única fuente de verdad)
+│   ├── 1_filtro_kalman_rover/
+│   │   ├── kf_rover.py            # KF base (medición de pose) + figuras
+│   │   ├── kf_rover_sim2real.py   # KF sim-to-real: IMU+encoders + ancla LiDAR
+│   │   ├── cross_validate.py      # validación cruzada Monte-Carlo
+│   │   └── REPORTE.md
+│   └── 2_mapa_ocupacion/
+│       ├── gridmap.py            # entorno + LiDAR (ruido MS200) + log-odds + validación
+│       └── REPORTE.md
+├── src/                          # Versión ROS 2 / Gazebo
+│   ├── tareas_gazebo/            # nodos KF+control y mapa de ocupación
+│   └── mi_proyecto_sim/          # robot JetAuto (URDF, mallas, mundo, chassis_sim)
+├── caracterizaciones/            # caracterización de los sensores del robot REAL
+│   ├── imu/  lidar/  motores/  ekf_fusion/  captura/
+├── compose.yaml                  # docker compose (proyecto/containers: "integration")
+└── Dockerfile
+----
+
+== Actividad 1 — Filtro de Kalman
+
+Cadena completa: modelo cinemático generalizado del rover → integración de Euler →
+mediciones de sensores con ruido → Filtro de Kalman en tiempo continuo →
+controlador de seguimiento que usa el *estado estimado*.
+
+* *Estudio base* (`kf_rover.py`, `cross_validate.py`): el KF reduce el error de
+  posición ~5× frente a la medición cruda; controlar con el estado estimado es
+  prácticamente idéntico a hacerlo con el estado real.
+* *Estudio sim-to-real* (`kf_rover_sim2real.py`): predicción con IMU (bias+ARW) +
+  encoders, corrección con la pose absoluta del LiDAR. El ancla LiDAR acota la
+  deriva del dead-reckoning (rumbo ~8° → ~0.3°).
+
+[source,bash]
+----
+cd tareas/1_filtro_kalman_rover
+python3 kf_rover.py
+python3 kf_rover_sim2real.py
+python3 cross_validate.py
+----
+
+== Actividad 2 — Mapa de ocupación probabilístico
+
+Rejilla en *log-odds* actualizada con un modelo inverso de sensor (libre a lo
+largo del haz, ocupado en el impacto; Bresenham). El LiDAR simulado inyecta el
+ruido real del Orbbec MS200 (σ por distancia, dropout 4.3 %, espurios 3.5 %).
+Aun así, la acumulación bayesiana recupera el mapa con ~99.9 % de exactitud.
+
+[source,bash]
+----
+cd tareas/2_mapa_ocupacion
+python3 gridmap.py
+----
+
+== Sim-to-real
+
+`tareas/comun/sensor_models.py` es la *única fuente de verdad* del ruido de los
+sensores, tomada de `caracterizaciones/` (robot JetAuto real): IMU MPU-6050
+(bias 0.199 °/s, ARW 1.06 °/√h), encoders mecanum (escala 1.085, cuantización) y
+LiDAR MS200 (σ 4.3 mm, dropout/espurios). El *mismo número* inyecta el ruido en
+simulación y sintoniza (Q, R) el filtro que lo corrige.
+
+== Correr en Gazebo (ROS 2 Humble)
+
+[source,bash]
+----
+xhost +local:root
+docker compose up -d --build
+docker exec -it integration bash
+
+# dentro del contenedor:
+cd /ros2_ws && colcon build --symlink-install && source install/setup.bash
+ros2 launch tareas_gazebo tareas_gazebo.launch.py
+----
+
+NOTE: Gazebo requiere GPU/X11. En RViz, añade un display *Map* con el tópico
+`/mapa_probabilistico` (frame `odom`) para ver el mapa en vivo.
+
+== Documentación
+
+Cada actividad incluye un `REPORTE.md` con el detalle de ecuaciones, parámetros y
+resultados: `tareas/1_filtro_kalman_rover/REPORTE.md` y
+`tareas/2_mapa_ocupacion/REPORTE.md`.
+
+== Referencia
+
+D. Díaz, R. Kelly, _"On Modeling and Position Tracking Control of the Generalized
+Differential Driven Wheeled Mobile Robot"_, IEEE, 2016.

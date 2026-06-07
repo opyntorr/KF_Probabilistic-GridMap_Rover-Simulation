@@ -1,0 +1,36 @@
+# --- Build / IDE ---
+build/
+install/
+log/
+.vscode/
+
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+
+# --- LaTeX (artefactos de compilacion en docs/) ---
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+
+# --- Agentes de IA (no versionar config/contexto de herramientas de IA) ---
+.agents/
+.claude/
+CLAUDE.md
+AGENTS.md
+.cursor/
+.cursorrules
+.aider*
+.windsurf/
+.continue/
+.github/copilot-instructions.md
+
+# --- Artefactos varios ---
+*.bag
+*.swp
+*~
