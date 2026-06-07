@@ -59,10 +59,15 @@ class World:
         self._rect(0, 0, t, self.h)
         self._rect(self.w - t, 0, self.w, self.h)
         # Obstaculos internos.
-        self._rect(1.5, 1.5, 2.2, 2.2)          # caja
-        self._rect(3.8, 3.5, 4.6, 4.9)          # caja
-        self._rect(3.6, 1.2, 3.8, 2.6)          # muro corto
-        self._rect(1.2, 3.8, 2.8, 4.0)          # muro corto
+        # Obstaculos FUERA de la ruta circular del robot (radio 1.4 alrededor del
+        # centro), igual que en Gazebo: una caja central que el robot ORBITA y
+        # obstaculos perifericos cerca de las paredes. Asi el robot nunca los
+        # atraviesa y el lidar los mapea desde fuera.
+        self._rect(2.6, 2.6, 3.4, 3.4)          # caja central (el robot la rodea)
+        self._rect(4.6, 4.6, 5.3, 5.3)          # caja NE
+        self._rect(0.7, 0.7, 1.4, 1.4)          # caja SO
+        self._rect(4.6, 0.7, 5.3, 1.4)          # caja SE
+        self._rect(0.5, 2.3, 0.7, 3.7)          # muro corto (izquierda)
 
     def world_to_grid(self, x, y):
         j = int(np.clip(x / self.res, 0, self.nx - 1))

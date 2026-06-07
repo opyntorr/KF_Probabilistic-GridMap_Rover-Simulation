@@ -6,9 +6,11 @@
 
 Dos actividades de navegación probabilística sobre un rover diferencial
 generalizado (modelo de Díaz & Kelly), implementadas primero como *simulación
-pura en Python* y luego trasladadas a *Gazebo* (ROS 2 Humble) para que sean lo
-más *sim-to-real* posible, inyectando el ruido **medido** de los sensores de un
-robot Hiwonder JetAuto real.
+pura en Python* y luego trasladadas a dos simuladores ROS 2 Humble, *Gazebo* e
+*Isaac Sim*, para que sean lo más *sim-to-real* posible, inyectando el ruido
+**medido** de los sensores de un robot Hiwonder JetAuto real. Se toma *Isaac Sim
+como referencia* por ser el más cercano a la realidad: ahí la base mecanum se
+mueve *por física* (ruedas con rodillos modelados y fricción), no por teleport.
 
 . *Filtro de Kalman en tiempo continuo* (Kalman–Bucy) que estima el estado del
   rover y cierra con él un controlador de seguimiento de trayectoria.
@@ -37,6 +39,11 @@ toc::[]
 ├── src/                          # Versión ROS 2 / Gazebo
 │   ├── tareas_gazebo/            # nodos KF+control y mapa de ocupación
 │   └── mi_proyecto_sim/          # robot JetAuto (URDF, mallas, mundo, chassis_sim)
+├── isaac/                        # Versión Isaac Sim 4.5 (mecanum POR FÍSICA, referencia)
+│   ├── scene_mecanum.py          # escena física (ruedas+48 rodillos); --gridmap añade cuarto+RTX lidar
+│   ├── kf_control_isaac.py       # Tarea 1 (encoders reales de /joint_states)
+│   ├── gridmap_isaac.py          # Tarea 2 (log-odds desde /scan del RTX lidar)
+│   └── run_kalman.sh / run_gridmap.sh   # ver isaac/README.md
 ├── caracterizaciones/            # caracterización de los sensores del robot REAL
 │   ├── imu/  lidar/  motores/  ekf_fusion/  captura/
 ├── compose.yaml                  # docker compose (proyecto/containers: "integration")
@@ -100,6 +107,31 @@ ros2 launch tareas_gazebo tareas_gazebo.launch.py
 
 NOTE: Gazebo requiere GPU/X11. En RViz, añade un display *Map* con el tópico
 `/mapa_probabilistico` (frame `odom`) para ver el mapa en vivo.
+
+== Correr en Isaac Sim 4.5 (mecanum por física — referencia)
+
+Tercer port de las dos tareas, *separado* de Python y Gazebo, en `isaac/`. La base
+mecanum se mueve *por física*: las 4 ruedas giran con un drive de velocidad y los 48
+rodillos pasivos modelados transmiten la tracción por fricción contra el suelo (el
+avance, el giro y el strafe emergen de la física, no de un plugin). Por eso es la
+plataforma más *sim-to-real* y la *referencia*: los encoders de `/joint_states` son
+reales y su *slip* hace derivar la odometría mucho más (rumbo >60°), que el filtro
+de Kalman acota a <1° con el ancla LiDAR. Corre en el *host* (no en el docker
+`integration`), con ROS 2 Humble e Isaac Sim 4.5 (`$ISAACSIM`).
+
+[source,bash]
+----
+# Tarea 1 (Kalman) — dos terminales:
+source isaac/isaac_env.sh && $ISAACSIM/python.sh isaac/scene_mecanum.py
+./isaac/run_kalman.sh
+
+# Tarea 2 (Mapa de ocupación):
+source isaac/isaac_env.sh && $ISAACSIM/python.sh isaac/scene_mecanum.py --gridmap
+./isaac/run_gridmap.sh
+----
+
+NOTE: Requiere GPU e Isaac Sim 4.5. Detalles, parámetros y notas de física (RTF,
+fricción, slip, TF) en `isaac/README.md`.
 
 == Documentación
 

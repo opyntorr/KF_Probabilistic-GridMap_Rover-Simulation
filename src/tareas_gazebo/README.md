@@ -51,16 +51,23 @@ docker exec -it integration bash
 cd /ros2_ws
 colcon build --symlink-install        # construye todo el workspace
 source install/setup.bash
-ros2 launch tareas_gazebo tareas_gazebo.launch.py
+
+# TAREA 1 (Filtro de Kalman) — mundo vacio, sin argumentos:
+ros2 launch tareas_gazebo kalman.launch.py
+# TAREA 2 (mapa de ocupacion) — cuarto con obstaculos, sin argumentos:
+ros2 launch tareas_gazebo gridmap.launch.py
 ```
 
-Esto levanta Gazebo (mundo laberinto) + el JetAuto + LiDAR + ambos nodos + RViz.
 En RViz añade un display **Map** con tópico `/mapa_probabilistico` (frame `odom`)
 para ver el mapa construirse en vivo; y `/odom` + `/cmd_vel` para ver el control.
 
-Argumentos útiles:
+Los dos launches de arriba son envoltorios sin argumentos del launch base
+`tareas_gazebo.launch.py`, que sigue siendo configurable:
 ```bash
-ros2 launch tareas_gazebo tareas_gazebo.launch.py rviz:=false obstaculos:=false
+# headless (sin ventana de Gazebo):
+ros2 launch tareas_gazebo kalman.launch.py gui:=false
+# o el base con argumentos a mano:
+ros2 launch tareas_gazebo tareas_gazebo.launch.py world:=tareas_room.sdf obstaculos:=false rviz:=false
 ```
 
 Las figuras de validación quedan en `src/tareas_gazebo/figs/` (montado al host).

@@ -6,6 +6,10 @@ log/
 
 # --- Figuras de salida de los nodos (regenerables al correr la sim) ---
 src/tareas_gazebo/figs/
+isaac/figs/
+
+# --- Isaac: overlay temporal de ament para reexportar el URDF ---
+isaac/.ament_overlay/
 
 # --- Python ---
 __pycache__/
