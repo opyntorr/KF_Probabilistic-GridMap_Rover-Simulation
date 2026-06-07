@@ -38,7 +38,8 @@ copiado de `caracterizaciones/`), y el mismo número sintoniza el filtro que lo 
   `gz_01..03_*.png` en `figs/`.
 - **`gridmap`** (`gridmap_node.py`) — TAREA 2: mapa de ocupación en log-odds con
   `/scan`. Publica `nav_msgs/OccupancyGrid` en `/mapa_probabilistico` (visible en
-  RViz) y guarda `gz_10_mapa_ocupacion.png` al cerrar (Ctrl-C).
+  RViz) y **autoguarda** `gz_10_mapa_ocupacion.png` en `figs/` cada ~10 s
+  (no depende de Ctrl-C).
 
 ## Cómo correrlo (dentro del docker)
 

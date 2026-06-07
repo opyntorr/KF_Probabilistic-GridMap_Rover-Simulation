@@ -1,0 +1,103 @@
+<?xml version="1.0"?>
+<!--
+  Mundo para la TAREA de mapa de ocupacion: un cuarto 6x6 m con obstaculos
+  (estilo del entorno de la simulacion en Python), colocados FUERA de la ruta
+  circular del robot (centro ~(-1.6,-0.85), radio 0.6) para que mapee sin chocar.
+  Mismos plugins que vacio.sdf/laberinto.sdf (Physics, SceneBroadcaster, Sensors
+  ogre2, Imu). Paredes y cajas con geometria <box> (sin mallas).
+-->
+<sdf version="1.8">
+  <world name="tareas_room_world">
+
+    <plugin filename="libignition-gazebo-physics-system.so"
+      name="ignition::gazebo::systems::Physics"></plugin>
+    <plugin filename="libignition-gazebo-scene-broadcaster-system.so"
+      name="ignition::gazebo::systems::SceneBroadcaster"></plugin>
+    <plugin filename="libignition-gazebo-user-commands-system.so"
+      name="ignition::gazebo::systems::UserCommands"></plugin>
+    <plugin filename="libignition-gazebo-sensors-system.so"
+      name="ignition::gazebo::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="libignition-gazebo-imu-system.so"
+      name="ignition::gazebo::systems::Imu"></plugin>
+
+    <scene>
+      <ambient>0.55 0.55 0.6 1.0</ambient>
+      <background>0.85 0.87 0.9 1.0</background>
+      <grid>false</grid>
+    </scene>
+
+    <physics name="3ms" type="ignored">
+      <max_step_size>0.003</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.5 0.5 0.5 1</diffuse>
+      <specular>0.05 0.05 0.05 1</specular>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry><plane><normal>0 0 1</normal><size>100 100</size></plane></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><plane><normal>0 0 1</normal><size>100 100</size></plane></geometry>
+          <material><ambient>0.8 0.8 0.8 1</ambient><diffuse>0.8 0.8 0.8 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ===== Cuarto 6x6 centrado en (-1.5,-0.75); paredes box, alto 0.6 ===== -->
+    <!-- Macro manual: cada pared es un modelo estatico con colision+visual box. -->
+    <model name="wall_n"><static>true</static><pose>-1.5 2.25 0.3 0 0 0</pose><link name="l">
+      <collision name="c"><geometry><box><size>6.0 0.1 0.6</size></box></geometry></collision>
+      <visual name="v"><geometry><box><size>6.0 0.1 0.6</size></box></geometry>
+        <material><ambient>0.35 0.35 0.4 1</ambient><diffuse>0.45 0.45 0.5 1</diffuse></material></visual>
+    </link></model>
+    <model name="wall_s"><static>true</static><pose>-1.5 -3.75 0.3 0 0 0</pose><link name="l">
+      <collision name="c"><geometry><box><size>6.0 0.1 0.6</size></box></geometry></collision>
+      <visual name="v"><geometry><box><size>6.0 0.1 0.6</size></box></geometry>
+        <material><ambient>0.35 0.35 0.4 1</ambient><diffuse>0.45 0.45 0.5 1</diffuse></material></visual>
+    </link></model>
+    <model name="wall_e"><static>true</static><pose>1.5 -0.75 0.3 0 0 0</pose><link name="l">
+      <collision name="c"><geometry><box><size>0.1 6.0 0.6</size></box></geometry></collision>
+      <visual name="v"><geometry><box><size>0.1 6.0 0.6</size></box></geometry>
+        <material><ambient>0.35 0.35 0.4 1</ambient><diffuse>0.45 0.45 0.5 1</diffuse></material></visual>
+    </link></model>
+    <model name="wall_w"><static>true</static><pose>-4.5 -0.75 0.3 0 0 0</pose><link name="l">
+      <collision name="c"><geometry><box><size>0.1 6.0 0.6</size></box></geometry></collision>
+      <visual name="v"><geometry><box><size>0.1 6.0 0.6</size></box></geometry>
+        <material><ambient>0.35 0.35 0.4 1</ambient><diffuse>0.45 0.45 0.5 1</diffuse></material></visual>
+    </link></model>
+
+    <!-- ===== Obstaculos internos (cajas), FUERA del circulo del robot ===== -->
+    <model name="box1"><static>true</static><pose>0.4 1.1 0.3 0 0 0</pose><link name="l">
+      <collision name="c"><geometry><box><size>0.6 0.6 0.6</size></box></geometry></collision>
+      <visual name="v"><geometry><box><size>0.6 0.6 0.6</size></box></geometry>
+        <material><ambient>0.2 0.2 0.25 1</ambient><diffuse>0.3 0.3 0.35 1</diffuse></material></visual>
+    </link></model>
+    <model name="box2"><static>true</static><pose>-3.5 0.8 0.3 0 0 0</pose><link name="l">
+      <collision name="c"><geometry><box><size>0.6 0.6 0.6</size></box></geometry></collision>
+      <visual name="v"><geometry><box><size>0.6 0.6 0.6</size></box></geometry>
+        <material><ambient>0.2 0.2 0.25 1</ambient><diffuse>0.3 0.3 0.35 1</diffuse></material></visual>
+    </link></model>
+    <model name="box3"><static>true</static><pose>-0.3 -3.0 0.3 0 0 0</pose><link name="l">
+      <collision name="c"><geometry><box><size>0.9 0.6 0.6</size></box></geometry></collision>
+      <visual name="v"><geometry><box><size>0.9 0.6 0.6</size></box></geometry>
+        <material><ambient>0.2 0.2 0.25 1</ambient><diffuse>0.3 0.3 0.35 1</diffuse></material></visual>
+    </link></model>
+    <model name="box4"><static>true</static><pose>0.6 -2.0 0.3 0 0 0</pose><link name="l">
+      <collision name="c"><geometry><box><size>0.5 1.4 0.6</size></box></geometry></collision>
+      <visual name="v"><geometry><box><size>0.5 1.4 0.6</size></box></geometry>
+        <material><ambient>0.2 0.2 0.25 1</ambient><diffuse>0.3 0.3 0.35 1</diffuse></material></visual>
+    </link></model>
+
+  </world>
+</sdf>

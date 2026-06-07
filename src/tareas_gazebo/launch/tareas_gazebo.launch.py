@@ -26,24 +26,29 @@ from launch.actions import (
     DeclareLaunchArgument, ExecuteProcess, SetEnvironmentVariable,
     AppendEnvironmentVariable, TimerAction, IncludeLaunchDescription,
 )
-from launch.conditions import IfCondition
+from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 
 
 def generate_launch_description():
     pkg_sim = get_package_share_directory('mi_proyecto_sim')
-    world_file = os.path.join(pkg_sim, 'worlds', 'laberinto.sdf')
+    world_file = PathJoinSubstitution([pkg_sim, 'worlds', LaunchConfiguration('world')])
     models_dir = os.path.join(pkg_sim, 'models')
     obstaculos_sdf = os.path.join(models_dir, 'obstaculos_var', 'model.sdf')
 
     use_rviz = LaunchConfiguration('rviz')
     use_obst = LaunchConfiguration('obstaculos')
+    use_gui = LaunchConfiguration('gui')
 
     args = [
         DeclareLaunchArgument('rviz', default_value='true'),
         DeclareLaunchArgument('obstaculos', default_value='true'),
+        DeclareLaunchArgument('gui', default_value='true',
+                              description='true=Gazebo con ventana; false=headless'),
+        DeclareLaunchArgument('world', default_value='laberinto.sdf',
+                              description='archivo de mundo en worlds/ (p.ej. vacio.sdf, tareas_room.sdf)'),
     ]
 
     set_env = SetEnvironmentVariable('IGN_GAZEBO_RESOURCE_PATH',
@@ -51,7 +56,11 @@ def generate_launch_description():
     plugin_env = AppendEnvironmentVariable('IGN_GAZEBO_SYSTEM_PLUGIN_PATH',
                                            '/opt/ros/humble/lib')
 
-    gazebo = ExecuteProcess(cmd=['ign', 'gazebo', '-r', world_file], output='screen')
+    # Gazebo con GUI (gui:=true, por defecto) o headless server-only (gui:=false).
+    gazebo_gui = ExecuteProcess(cmd=['ign', 'gazebo', '-r', world_file],
+                                output='screen', condition=IfCondition(use_gui))
+    gazebo_headless = ExecuteProcess(cmd=['ign', 'gazebo', '-s', '-r', world_file],
+                                     output='screen', condition=UnlessCondition(use_gui))
 
     clock_bridge = Node(
         package='ros_gz_bridge', executable='parameter_bridge', output='screen',
@@ -84,7 +93,8 @@ def generate_launch_description():
     )
     grid_node = Node(
         package='tareas_gazebo', executable='gridmap', name='gridmap_node',
-        output='screen', parameters=[{'use_sim_time': True}],
+        output='screen',
+        parameters=[{'use_sim_time': True, 'max_range': 5.0, 'inject_ms200': False}],
     )
     # Arrancar los nodos cuando el robot/sensores ya esten arriba.
     nodos_diferidos = TimerAction(period=10.0, actions=[kf_node, grid_node])
@@ -96,6 +106,6 @@ def generate_launch_description():
     )
 
     return LaunchDescription(args + [
-        set_env, plugin_env, gazebo, clock_bridge, jetauto,
+        set_env, plugin_env, gazebo_gui, gazebo_headless, clock_bridge, jetauto,
         spawn_obst_diferido, nodos_diferidos, rviz,
     ])

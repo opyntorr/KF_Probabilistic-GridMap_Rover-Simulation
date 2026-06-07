@@ -4,6 +4,9 @@ install/
 log/
 .vscode/
 
+# --- Figuras de salida de los nodos (regenerables al correr la sim) ---
+src/tareas_gazebo/figs/
+
 # --- Python ---
 __pycache__/
 *.pyc

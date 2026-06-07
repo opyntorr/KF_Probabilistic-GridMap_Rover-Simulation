@@ -53,7 +53,7 @@ class KFControlNode(Node):
         super().__init__('kf_control_node')
         gp = lambda n, v: self.declare_parameter(n, v).value
 
-        self.h = gp('h', 0.10)
+        self.h = gp('h', 0.15)
         kp = gp('kp', 0.8)
         self.Kp = np.diag([kp, kp])
         self.R_traj = gp('traj_radius', 0.6)
@@ -104,8 +104,9 @@ class KFControlNode(Node):
 
     def desired(self, t):
         R, w = self.R_traj, self.omega_t
-        qd = self.center + np.array([R * np.sin(w * t), -R * np.cos(w * t)])
-        qd_dot = np.array([R * w * np.cos(w * t), R * w * np.sin(w * t)])
+        # circulo que arranca moviendose en +y (rumbo inicial del robot, yaw=pi/2)
+        qd = self.center + np.array([R * np.cos(w * t), R * np.sin(w * t)])
+        qd_dot = np.array([-R * w * np.sin(w * t), R * w * np.cos(w * t)])
         return qd, qd_dot
 
     def step(self):
@@ -114,7 +115,7 @@ class KFControlNode(Node):
         if self.xi_hat is None:
             self.xi_hat = self.gt.copy()
             self.xi_odo = self.gt.copy()
-            self.center = rm.point_p(self.gt, self.h) + np.array([0.0, self.R_traj])
+            self.center = rm.point_p(self.gt, self.h) - np.array([self.R_traj, 0.0])
             self.t0 = self.get_clock().now().nanoseconds * 1e-9
             return
 
@@ -188,6 +189,9 @@ class KFControlNode(Node):
         Pd = d[:, 12:15]
         names = ['x [m]', 'y [m]', 'theta [rad]']
 
+        def wrap(a):  # envuelve angulos a [-pi, pi]
+            return np.arctan2(np.sin(a), np.cos(a))
+
         plt.figure(figsize=(7.5, 7.5))
         plt.plot(qd[:, 0], qd[:, 1], 'g--', lw=2, label='Deseada')
         plt.plot(g[:, 0], g[:, 1], 'b-', lw=1.6, label='Ground truth (gz)')
@@ -201,9 +205,12 @@ class KFControlNode(Node):
 
         fig, ax = plt.subplots(3, 1, figsize=(10, 8), sharex=True)
         for i in range(3):
-            ax[i].plot(t, g[:, i], 'b-', lw=1.4, label='Ground truth')
-            ax[i].plot(t, o[:, i], color='orange', lw=1.0, label='Odometria sola')
-            ax[i].plot(t, h[:, i], 'r-', lw=1.0, label='Estimado KF')
+            gi, oi, hi = g[:, i], o[:, i], h[:, i]
+            if i == 2:   # theta: desenvolver para comparar gz (envuelto) con el estimado (continuo)
+                gi, oi, hi = np.unwrap(gi), np.unwrap(oi), np.unwrap(hi)
+            ax[i].plot(t, gi, 'b-', lw=1.4, label='Ground truth')
+            ax[i].plot(t, oi, color='orange', lw=1.0, label='Odometria sola')
+            ax[i].plot(t, hi, 'r-', lw=1.0, label='Estimado KF')
             ax[i].set_ylabel(names[i]); ax[i].grid(True, alpha=0.3)
         ax[0].legend(loc='upper right', ncol=3); ax[2].set_xlabel('t [s]')
         fig.suptitle('Gazebo sim-to-real: real vs odometria(deriva) vs KF')
@@ -212,6 +219,7 @@ class KFControlNode(Node):
         plt.close(fig)
 
         err = g - h
+        err[:, 2] = wrap(g[:, 2] - h[:, 2])   # error angular envuelto a [-pi, pi]
         two = 2.0 * np.sqrt(Pd)
         fig, ax = plt.subplots(3, 1, figsize=(10, 8), sharex=True)
         for i in range(3):
@@ -227,10 +235,13 @@ class KFControlNode(Node):
 
         def rmse(a, b):
             return float(np.sqrt(np.mean((a - b) ** 2)))
+
+        def rmse_ang(a, b):
+            return float(np.sqrt(np.mean(wrap(a - b) ** 2)))
         self.get_logger().info(
             f'RMSE vs GT  x: odo={rmse(o[:,0],g[:,0]):.3f} kf={rmse(h[:,0],g[:,0]):.3f} | '
             f'y: odo={rmse(o[:,1],g[:,1]):.3f} kf={rmse(h[:,1],g[:,1]):.3f} | '
-            f'th: odo={rmse(o[:,2],g[:,2]):.3f} kf={rmse(h[:,2],g[:,2]):.3f}')
+            f'th: odo={rmse_ang(o[:,2],g[:,2]):.3f} kf={rmse_ang(h[:,2],g[:,2]):.3f}')
 
 
 def main():

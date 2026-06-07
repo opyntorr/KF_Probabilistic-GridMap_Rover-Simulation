@@ -92,6 +92,9 @@ class GridMapNode(Node):
         self.pub = self.create_publisher(OccupancyGrid, '/mapa_probabilistico', 1)
         self.create_timer(0.5, self.publish_map)   # 2 Hz
         self.n_scans = 0
+        # Autoguardado periodico de la figura: asi el mapa queda en disco aunque el
+        # nodo se cierre con kill/Ctrl-C (no depende de capturar la senal de cierre).
+        self.create_timer(10.0, self.save_plot)
         self.get_logger().info('gridmap_node listo (esperando /scan y TF odom->lidar)...')
 
     def w2g(self, x, y):
@@ -179,6 +182,17 @@ class GridMapNode(Node):
             p = np.array(self.path)
             plt.plot(p[:, 0], p[:, 1], 'r-', lw=1, label='trayectoria lidar')
             plt.legend()
+        # recortar a la zona util (paredes ocupadas + trayectoria) + margen
+        prob = self.prob()
+        occ = np.argwhere(prob >= 0.6)
+        if occ.size:
+            xs = self.origin_x + occ[:, 1] * self.res
+            ys = self.origin_y + occ[:, 0] * self.res
+            if self.path:
+                xs = np.concatenate([xs, p[:, 0]]); ys = np.concatenate([ys, p[:, 1]])
+            m = 1.0
+            plt.xlim(xs.min() - m, xs.max() + m)
+            plt.ylim(ys.min() - m, ys.max() + m)
         plt.title(f'Gazebo: mapa de ocupacion ({self.n_scans} escaneos)\n'
                   'negro=ocupado, blanco=libre, gris=desconocido')
         plt.xlabel('x [m]'); plt.ylabel('y [m]')
