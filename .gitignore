@@ -11,6 +11,21 @@ isaac/figs/
 # --- Isaac: overlay temporal de ament para reexportar el URDF ---
 isaac/.ament_overlay/
 
+# --- Isaac: assets USD generados (regenerables: world_loader / asset_converter) ---
+isaac/assets/worlds/usd/
+isaac/assets/tello_isaac.usd
+
+# --- Isaac: salidas de corrida (grabaciones, barrido, mp4) ---
+isaac/cams_*/
+isaac/serpenteo_results.csv
+isaac/topdown_*.mp4
+
+# --- Isaac: probes diagnósticos desechables ---
+isaac/_maze_probe.py
+isaac/_maze_render.py
+isaac/_maze_collinspect.py
+isaac/_world_probe.py
+
 # --- Python ---
 __pycache__/
 *.pyc

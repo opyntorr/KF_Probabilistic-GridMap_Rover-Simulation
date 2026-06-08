@@ -49,6 +49,26 @@ WHEELS = ['front_left_wheel_joint', 'front_right_wheel_joint',
 parser = argparse.ArgumentParser()
 parser.add_argument("--headless", action="store_true")
 parser.add_argument("--gridmap", action="store_true", help="añade cuarto 6x6 + RTX lidar /scan")
+parser.add_argument("--lidar", action="store_true", help="RTX lidar /scan SIN el cuarto 6x6 (mundos como laberinto)")
+# --- módulos del port (drone, aruco3d, sensors, cameras, perf_hud) ---
+parser.add_argument("--aruco", action="store_true", help="marcadores ArUco 3D + cubo objetivo")
+parser.add_argument("--drone", action="store_true", help="dron Tello kinemático en /drone1/cmd_vel")
+parser.add_argument("--imu", action="store_true", help="IMU en /imu/data_raw")
+parser.add_argument("--camera", action="store_true", help="cámara RGBD Astra en /cam_1/*")
+parser.add_argument("--cameras", action="store_true", help="rig multi-cámara wheel/scene/chase[/top]")
+parser.add_argument("--viewports", action="store_true", help="un viewport GUI por cámara (no --headless)")
+parser.add_argument("--rec_cams", action="store_true", help="graba el rig multicámara a disco")
+parser.add_argument("--cam_res", default="1080p", help="preset resolución rig (720p/1080p/1440p/4k)")
+parser.add_argument("--perf", action="store_true", help="HUD stats + [PERF] fps/rtf/gpu/ram")
+# --- knobs de física del barrido de serpenteo (default = no tocar) ---
+parser.add_argument("--solver-pos", type=int, default=-1)
+parser.add_argument("--solver-vel", type=int, default=-1)
+parser.add_argument("--phys-hz", type=float, default=-1.0)
+parser.add_argument("--contact-offset", type=float, default=-1.0)
+parser.add_argument("--rest-offset", type=float, default=-1.0)
+parser.add_argument("--maxdepen", type=float, default=-1.0)
+parser.add_argument("--roller-shape", default="sphere")
+parser.add_argument("--apply-perstep", action="store_true")
 parser.add_argument("--no-extra", action="store_true", help="no cargar los USDs de EXTRA_USDS")
 parser.add_argument("--ground", action="store_true", help="forzar el plano de piso propio aunque haya escenario")
 parser.add_argument("--no-ground", action="store_true", help="no crear plano de piso propio (usa el piso del escenario)")
@@ -58,6 +78,7 @@ parser.add_argument("--y", type=float, default=None)
 parser.add_argument("--z", type=float, default=0.05)
 parser.add_argument("--yaw", type=float, default=None)
 parser.add_argument("--friction", type=float, default=1.0, help="μ estática=dinámica de ruedas/suelo")
+parser.add_argument("--world", default="", help="mundo a cargar: 'laberinto' (URDF estático con mallas STL) o ''")
 parser.add_argument("--record", action="store_true",
                     help="graba una cámara cenital a mp4 durante la rutina (Kelly)")
 parser.add_argument("--record_secs", type=float, default=90.0,
@@ -68,12 +89,13 @@ parser.add_argument("--rec_out", default=None, help="ruta del .mp4 (default: isa
 args, _ = parser.parse_known_args()
 
 # spawn por defecto segun la tarea (igual que el port kinematico)
+_spawn_corner = args.gridmap or args.world == "laberinto"
 if args.x is None:
-    args.x = -1.0 if args.gridmap else 0.0
+    args.x = -1.0 if _spawn_corner else 0.0
 if args.y is None:
-    args.y = -1.0 if args.gridmap else 0.0
+    args.y = -1.0 if _spawn_corner else 0.0
 if args.yaw is None:
-    args.yaw = math.pi / 2 if args.gridmap else 0.0
+    args.yaw = math.pi / 2 if _spawn_corner else 0.0
 
 simulation_app = SimulationApp({"renderer": "RaytracedLighting", "headless": args.headless})
 
@@ -91,10 +113,14 @@ from pxr import Gf, PhysxSchema, Sdf, Usd, UsdGeom, UsdLux, UsdPhysics, UsdShade
 
 enable_extension("isaacsim.ros2.bridge")
 enable_extension("isaacsim.asset.importer.urdf")
-if args.gridmap:
+if args.gridmap or args.lidar:
     enable_extension("isaacsim.sensors.rtx")
-if args.record:
+if args.imu:
+    enable_extension("isaacsim.sensors.physics")    # sensor IMU (sensors.add_imu)
+if args.record or args.cameras or args.rec_cams or args.viewports:
     enable_extension("isaacsim.sensors.camera")
+if args.world == "laberinto" or args.drone:
+    enable_extension("omni.kit.asset_converter")   # STL/DAE->USD (laberinto / malla del dron)
 simulation_app.update()
 
 # --- 1) Importar el URDF (con rodillos) ------------------------------------
@@ -144,7 +170,7 @@ physx.CreateEnableStabilizationAttr(True)
 physx.CreateEnableGPUDynamicsAttr(False)
 physx.CreateBroadphaseTypeAttr("MBP")
 physx.CreateSolverTypeAttr("TGS")
-physx.CreateTimeStepsPerSecondAttr(120.0)      # paso fino: rodillos pequeños
+physx.CreateTimeStepsPerSecondAttr(args.phys_hz if args.phys_hz > 0 else 120.0)  # --phys-hz (sweep)
 
 # material de fricción (suelo + rodillos)
 mat_path = "/physicsMaterial"
@@ -155,10 +181,18 @@ mat.CreateDynamicFrictionAttr(args.friction)
 mat.CreateRestitutionAttr(0.0)
 print(f"[FIS] fricción μ={args.friction}", flush=True)
 
+# --- mundo: laberinto (mallas STL del proyecto Gazebo via REFERENCIA USD) ----
+# Patrón PROBADO (= EXTRA_USDS): STL->USD (asset_converter) + colisión de malla "none"
+# + colores planos = Gazebo (clave para el stitching del dron). NO por URDF (un import
+# URDF dejaba un convexHull combinado y el robot caía; ver world_loader.py).
+if args.world == "laberinto":
+    from world_loader import load_laberinto
+    _maze_path, _maze_bb = load_laberinto(stage, simulation_app, mat_path=mat_path)
+
 # Plano de piso PROPIO: solo cuando NO hay escenario importado (si hay, el robot se
 # apoya en el piso del escenario; un plano propio en z=0 lo pisaría/enterraría).
-_load_extras = (not args.no_extra) and len(EXTRA_USDS) > 0
-_make_ground = args.ground or (not args.no_ground and not _load_extras)
+_load_extras = (not args.no_extra) and len(EXTRA_USDS) > 0 and not args.world
+_make_ground = args.ground or (not args.no_ground and not _load_extras and not args.world)
 if _make_ground:
     omni.kit.commands.execute(
         "AddGroundPlaneCommand", stage=stage, planePath="/groundPlane", axis="Z",
@@ -187,7 +221,7 @@ dome.CreateColorAttr(Gf.Vec3f(0.9, 0.93, 1.0))
 # así que por defecto se CENTRAN en xy (por su bbox) y se bajan para que su piso
 # quede en z=0. "at" desplaza ADEMÁS del centrado; "center": False usa "at" tal cual.
 spawn_on_pose = None   # (x,y,z_top) si algún asset tiene "spawn_on": el robot va encima
-if not args.no_extra:
+if _load_extras:
     for i, e in enumerate(EXTRA_USDS):
         UsdGeom.Xform.Define(stage, f"/World/Extra_{i}")
         add_reference_to_stage(usd_path=e["path"], prim_path=f"/World/Extra_{i}/ref")
@@ -236,6 +270,12 @@ for p in stage.Traverse():
             UsdShade.MaterialBindingAPI.Apply(p).Bind(
                 UsdShade.Material(stage.GetPrimAtPath(mat_path)),
                 bindingStrength=UsdShade.Tokens.weakerThanDescendants, materialPurpose="physics")
+            if args.contact_offset >= 0.0 or args.rest_offset >= 0.0:
+                _capi = PhysxSchema.PhysxCollisionAPI.Apply(p)   # --contact-offset/--rest-offset (sweep)
+                if args.contact_offset >= 0.0:
+                    _capi.CreateContactOffsetAttr(args.contact_offset)
+                if args.rest_offset >= 0.0:
+                    _capi.CreateRestOffsetAttr(args.rest_offset)
             n_roller += 1
 print(f"[FIS] fricción aplicada a {n_roller} colliders de rodillo")
 if n_roller == 0:
@@ -262,6 +302,14 @@ if args.gridmap:
         cube.GetSizeAttr().Set(1.0)
         cube.CreateDisplayColorAttr([Gf.Vec3f(0.6, 0.6, 0.65)])
     print(f"[FIS] cuarto con {len(ROOM)} cuerpos")
+
+# --- ArUcos 3D (tabla blanca 4mm + negro extruido 0.6mm) + cubo objetivo ----
+if args.aruco:
+    from aruco3d import make_goal_cube, place_robot_marker
+    make_goal_cube(stage, "/World/CuboAruco", pose=(1.5, 0.0, 0.075), mat_path=mat_path)
+    _robot_root = "/" + str(prim_path).strip("/").split("/")[0]
+    place_robot_marker(stage, _robot_root + "/base_link", marker_id=4)
+    print("[FIS] ArUcos 3D: cubo objetivo + marcador ID4 en el techo del robot", flush=True)
 
 # --- 3) Grafo ROS2: clock + odom(GT físico) + TF + joint_states ------------
 og.Controller.edit(
@@ -308,8 +356,19 @@ og.Controller.edit(
     },
 )
 
-# --- 3b) (gridmap) RTX lidar 2D en lidar_frame -> /scan --------------------
-if args.gridmap:
+# --- sensores extra (paridad con Gazebo): IMU /imu/data_raw + RGB-D /cam_1 --
+if args.imu or args.camera:
+    from sensors import add_imu, add_rgbd_camera
+    _rroot = "/" + str(prim_path).strip("/").split("/")[0]   # /jetauto (raíz: busca en TODO el robot)
+    if args.imu:
+        add_imu(stage, simulation_app, base_link_prim=_rroot,
+                topic="/imu/data_raw", frame_id="imu_link")
+    if args.camera:
+        add_rgbd_camera(stage, simulation_app, base_link_prim=_rroot, topic_base="/cam_1",
+                        resolution=(640, 480), frame_id="cam_1_optical_frame")
+
+# --- 3b) RTX lidar 2D en lidar_frame -> /scan (gridmap o --lidar) ----------
+if args.gridmap or args.lidar:
     import omni.replicator.core as rep
     lidar_parent = prim_path
     for p in stage.Traverse():
@@ -343,6 +402,13 @@ simulation_app.update()
 
 art = SingleArticulation(prim_path)
 art.initialize()
+# knobs anti-serpenteo (sweep): iteraciones del solver de la articulación + maxDepen
+if args.solver_pos >= 0:
+    art.set_solver_position_iteration_count(args.solver_pos)
+if args.solver_vel >= 0:
+    art.set_solver_velocity_iteration_count(args.solver_vel)
+if args.maxdepen >= 0.0:
+    PhysxSchema.PhysxRigidBodyAPI.Apply(stage.GetPrimAtPath(prim_path)).CreateMaxDepenetrationVelocityAttr(args.maxdepen)
 
 
 def _quat_yaw(yaw):
@@ -432,6 +498,43 @@ if args.record:
         rec = None
 
 
+# --- dron Tello kinemático opcional (obedece /drone1/cmd_vel) -----------------
+drone = None
+if args.drone:
+    from drone import IsaacDrone
+    drone = IsaacDrone(stage, simulation_app, prim_path="/World/drone1",
+                       spawn=(args.x, args.y, 0.1), mat_path=mat_path)
+    drone.post_play_init()                            # crea Camera+render product (timeline ya en play)
+    drone.takeoff()                                   # sube a z=2.2 (gate z>0.8 del position_controller)
+
+
+# --- HUD de rendimiento opcional (FPS / RTF / GPU / memoria) -----------------
+perf = None
+if args.perf:
+    from perf_hud import PerfMonitor, enable_stats_overlay
+    if not args.headless:
+        enable_stats_overlay()                        # overlay de stats del viewport (GUI)
+    perf = PerfMonitor(simulation_app, timeline=timeline, publish_ros=True, ros_node=node)
+
+# --- rig multicámara opcional (wheel/scene/chase) + grabación a disco --------
+CAMS = {}
+cam_rec = None
+_cams = None
+if args.cameras or args.rec_cams or args.viewports:
+    import cameras as _cams
+    CAMS = _cams.setup_cameras(stage, simulation_app, robot_prim=prim_path, wheel_link_prim=None,
+                               specs={"scene": {"resolution": args.cam_res},
+                                      "chase": {"resolution": args.cam_res},
+                                      "wheel": {"resolution": args.cam_res}})
+    if args.viewports and not args.headless:
+        _cams.create_viewports(CAMS, resolution=(640, 360))
+    if args.rec_cams:
+        import datetime as _dt
+        _outd = os.path.join(HERE, f"cams_{_dt.datetime.now():%Y%m%d_%H%M%S}")
+        cam_rec = _cams.Recorder(CAMS, _outd, fps=args.record_fps, resolution=args.cam_res)
+        cam_rec.start()
+
+
 def _rec_step():
     """Captura un frame si toca; arranca al moverse, termina a record_secs. No-fatal."""
     if rec is None or rec["done"]:
@@ -473,10 +576,21 @@ print("[FIS] Listo. /cmd_vel mueve el robot POR FRICCIÓN (ruedas+rodillos).")
 try:
     while simulation_app.is_running():
         rclpy.spin_once(node, timeout_sec=0.0)
+        if drone is not None:
+            drone.spin_once()
+            drone.step(1.0 / 120.0)
         targets = ik(cmd["vx"], cmd["vy"], cmd["wz"])
         art.apply_action(ArticulationAction(joint_velocities=targets,
                                             joint_indices=np.array(wheel_idx)))
         simulation_app.update()
+        if drone is not None:
+            drone.publish_odom()
+        if perf is not None:
+            perf.tick()
+        if CAMS and _cams is not None:
+            _cams.update_chase_camera(stage, CAMS)
+        if cam_rec is not None:
+            cam_rec.step()
         _rec_step()
 except KeyboardInterrupt:
     pass
@@ -485,6 +599,16 @@ finally:
         try:
             rec["ff"].stdin.close(); rec["ff"].wait()
             print(f"[REC] ■ guardado (parcial) {rec['out']}", flush=True)
+        except Exception:
+            pass
+    if drone is not None:
+        drone.shutdown()
+    if perf is not None:
+        perf.shutdown()
+    if cam_rec is not None:
+        try:
+            cam_rec.stop()
+            cam_rec.to_mp4()
         except Exception:
             pass
     rclpy.shutdown()

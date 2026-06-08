@@ -1,0 +1,67 @@
+<?xml version="1.0"?>
+<!-- Laberinto como cuerpo estatico para Isaac (reusa el import URDF). Mallas STL del
+     proyecto Gazebo (escala 0.001). Colores PLANOS iguales a Gazebo (model.sdf de
+     laberinto_real) -> CLAVE para que el stitching del dron empate features.
+     Generado para el port Gazebo->Isaac. El transform mundo (-2.294,2.294,0,roll=pi/2)
+     compuesto con el pose interno del modelo (yaw=pi/2) se aplica al importar. -->
+<robot name="laberinto">
+
+  <material name="col_piso">  <color rgba="0.08 0.08 0.09 1"/></material>
+  <material name="col_paredes"><color rgba="0.55 0.38 0.20 1"/></material>
+  <material name="col_lineas"> <color rgba="0.03 0.28 0.70 1"/></material>
+  <material name="col_jaula">  <color rgba="0.85 0.85 0.85 1"/></material>
+  <material name="col_cajas">  <color rgba="1.0 0.85 0.0 1"/></material>
+
+  <link name="maze">
+    <!-- piso -->
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <geometry><mesh filename="file:///home/opyntorr/agv_uav_project_jetauto/src/mi_proyecto_sim/models/laberinto_real/meshes/piso.stl" scale="0.001 0.001 0.001"/></geometry>
+      <material name="col_piso"/>
+    </visual>
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <geometry><mesh filename="file:///home/opyntorr/agv_uav_project_jetauto/src/mi_proyecto_sim/models/laberinto_real/meshes/piso.stl" scale="0.001 0.001 0.001"/></geometry>
+    </collision>
+
+    <!-- paredes -->
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <geometry><mesh filename="file:///home/opyntorr/agv_uav_project_jetauto/src/mi_proyecto_sim/models/laberinto_real/meshes/paredes.stl" scale="0.001 0.001 0.001"/></geometry>
+      <material name="col_paredes"/>
+    </visual>
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <geometry><mesh filename="file:///home/opyntorr/agv_uav_project_jetauto/src/mi_proyecto_sim/models/laberinto_real/meshes/paredes.stl" scale="0.001 0.001 0.001"/></geometry>
+    </collision>
+
+    <!-- lineas (solo visual; offset y=-0.02027 del model.sdf) -->
+    <visual>
+      <origin rpy="0 0 0" xyz="0 -0.02027 0"/>
+      <geometry><mesh filename="file:///home/opyntorr/agv_uav_project_jetauto/src/mi_proyecto_sim/models/laberinto_real/meshes/lineas.stl" scale="0.001 0.001 0.001"/></geometry>
+      <material name="col_lineas"/>
+    </visual>
+
+    <!-- jaula -->
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <geometry><mesh filename="file:///home/opyntorr/agv_uav_project_jetauto/src/mi_proyecto_sim/models/laberinto_real/meshes/jaula.stl" scale="0.001 0.001 0.001"/></geometry>
+      <material name="col_jaula"/>
+    </visual>
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <geometry><mesh filename="file:///home/opyntorr/agv_uav_project_jetauto/src/mi_proyecto_sim/models/laberinto_real/meshes/jaula.stl" scale="0.001 0.001 0.001"/></geometry>
+    </collision>
+
+    <!-- cajasRecientes -->
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <geometry><mesh filename="file:///home/opyntorr/agv_uav_project_jetauto/src/mi_proyecto_sim/models/laberinto_real/meshes/cajasRecientes.stl" scale="0.001 0.001 0.001"/></geometry>
+      <material name="col_cajas"/>
+    </visual>
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <geometry><mesh filename="file:///home/opyntorr/agv_uav_project_jetauto/src/mi_proyecto_sim/models/laberinto_real/meshes/cajasRecientes.stl" scale="0.001 0.001 0.001"/></geometry>
+    </collision>
+  </link>
+</robot>
