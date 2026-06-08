@@ -14,28 +14,37 @@
 #     from jetauto_materials import apply_jetauto_materials
 #     apply_jetauto_materials(stage, prim_path)
 import os
+import shutil
 from pxr import Gf, Sdf, UsdGeom, UsdShade
 
-_HERE  = os.path.dirname(os.path.abspath(__file__))
-# Textura en ruta SIN ESPACIOS: la carpeta del proyecto ("...jetauto Vilchis") tiene un
-# espacio y un asset path con espacios puede no resolver en Omniverse (el grano no saldría).
-_GRAIN = "/home/opyntorr/.local/share/jetauto_isaac/grain_normal.png"
+_HERE = os.path.dirname(os.path.abspath(__file__))
+# La textura de grano se VERSIONA en el repo (assets/textures/), pero Omniverse no resuelve
+# bien asset paths con ESPACIOS (la carpeta "...jetauto Vilchis" tiene uno). Para ser PORTABLE:
+# copiamos la textura del repo a un cache SIN espacios (~/.local/share/...) y usamos esa ruta.
+_REPO_GRAIN = os.path.join(_HERE, "assets", "textures", "grain_normal.png")
+_GRAIN = os.path.join(os.path.expanduser("~"), ".local", "share", "jetauto_isaac", "grain_normal.png")
+try:
+    if not os.path.exists(_GRAIN) and os.path.exists(_REPO_GRAIN):
+        os.makedirs(os.path.dirname(_GRAIN), exist_ok=True)
+        shutil.copyfile(_REPO_GRAIN, _GRAIN)
+except Exception:
+    _GRAIN = _REPO_GRAIN if os.path.exists(_REPO_GRAIN) else _GRAIN
 
 # spec = {color, metallic, roughness, extra:{input_OmniPBR: valor}}
 # 'extra' solo aplica en OmniPBR (el fallback UsdPreviewSurface lo ignora).
 # Verde anodizado INTERMEDIO: satinado metálico + grano FINO y SUTIL (que se note el
 # anodizado sin el sparkle fuerte). Dials: roughness=brillo (menos=espejo), bump_factor=grano.
 GREEN_ANODIZED = {
-    "color": (0.065, 0.52, 0.11), "metallic": 0.85, "roughness": 0.33,
+    "color": (0.065, 0.48, 0.11), "metallic": 0.85, "roughness": 0.33,
     "extra": {
         "project_uvw": True,
         "world_or_object": False,
-        "texture_scale": (120.0, 120.0),   # grano muy fino
+        "texture_scale": (60.0, 60.0),   # grano muy fino
         "normalmap_texture": _GRAIN,
-        "bump_factor": 0.1,              # grano sutil (0.6 era el fuerte)
+        "bump_factor": 0.2,              # grano sutil (0.6 era el fuerte)
     },
 }
-MATTE_BLACK = {"color": (0.02, 0.02, 0.02), "metallic": 0.0, "roughness": 0.28, "extra": {}}
+MATTE_BLACK = {"color": (0.02, 0.02, 0.02), "metallic": 0.0, "roughness": 0.85, "extra": {}}
 
 # Clasificacion por nombre de link (substring de la ruta del prim).
 GREEN_LINKS = ("base_link",)
