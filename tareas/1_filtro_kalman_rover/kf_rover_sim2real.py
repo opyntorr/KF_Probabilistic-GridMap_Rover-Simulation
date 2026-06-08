@@ -44,7 +44,7 @@ def desired_trajectory(t, R=0.6, omega=2 * np.pi / 70.0):
     return qd, qd_dot
 
 
-def run_simulation(seed=0, T=70.0, dt=1.0 / sm.IMU_RATE_HZ, h=0.10, Kp_gain=0.8):
+def run_simulation(seed=0, T=70.0, dt=1.0 / sm.IMU_RATE_HZ, h=0.30, Kp_gain=0.8):
     rng = np.random.default_rng(seed)
     Kp = np.diag([Kp_gain, Kp_gain])
     lidar_every = max(1, int(round(sm.IMU_RATE_HZ / sm.LIDAR_RATE_HZ)))  # 50/15 ~ 3

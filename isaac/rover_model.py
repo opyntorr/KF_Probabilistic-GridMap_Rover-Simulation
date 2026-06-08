@@ -26,7 +26,7 @@ import numpy as np
 class RoverParams:
     """Parametros del modelo generalizado (en metros)."""
 
-    def __init__(self, r=0.04825, h=0.10, d=0.194):
+    def __init__(self, r=0.04825, h=0.30, d=0.194):
         self.r = r  # radio de rueda real del JetAuto [m]
         self.h = h  # offset del punto de interes p (h != 0) [m]
         self.d = d  # track diferencial equivalente [m]

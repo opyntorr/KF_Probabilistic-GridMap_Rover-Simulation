@@ -30,7 +30,7 @@ import numpy as np
 class RoverParams:
     """Parametros geometricos del rover (en metros). Valores del paper."""
 
-    def __init__(self, r=0.04, h=0.15, d=0.10):
+    def __init__(self, r=0.04, h=0.30, d=0.10):
         self.r = r  # radio de rueda            [m]
         self.h = h  # offset del punto p (h!=0) [m]
         self.d = d  # separacion entre ruedas   [m]

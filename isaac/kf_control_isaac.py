@@ -54,9 +54,14 @@ class KFControlIsaac(Node):
                          parameter_overrides=[Parameter('use_sim_time', Parameter.Type.BOOL, True)])
         gp = lambda n, v: self.declare_parameter(n, v).value
 
-        self.h = gp('h', 0.15)
+        self.h = gp('h', 0.30)   # offset Kelly (= robot real); ganancia angular ~Kp/h
         kp = gp('kp', 0.8)
         self.Kp = np.diag([kp, kp])
+        self.cmd_alpha = gp('cmd_lpf_alpha', 0.8)  # LPF de salida (= robot real); 1.0 = sin filtro
+        self.v_cmd_prev = 0.0
+        self.w_cmd_prev = 0.0
+        self.ctrl_on_gt = gp('ctrl_on_gt', False)  # DIAGNOSTICO: controlar sobre GT limpio (sin ruido KF)
+        self.open_loop = gp('open_loop', False)     # DIAGNOSTICO: círculo con twist constante, sin realimentación
         self.R_traj = gp('traj_radius', 0.6)
         self.omega_t = gp('traj_omega', 2 * np.pi / 70.0)
         self.duration = gp('duration_s', 90.0)
@@ -153,13 +158,25 @@ class KFControlIsaac(Node):
             self.P = 0.5 * (self.P + self.P.T)
         self.k += 1
 
-        # --- CONTROL con estado estimado ---
-        q_p = rm.point_p(self.xi_hat, self.h)
+        # --- CONTROL con estado estimado (o GT/lazo-abierto si diagnóstico) ---
         qd, qd_dot = self.desired(t)
-        v, w = rm.controller_twist(q_p, self.xi_hat[2], qd, qd_dot, self.Kp, self.h)
+        if self.open_loop:
+            v, w = self.R_traj * self.omega_t, self.omega_t   # círculo SIN realimentación
+            q_p = rm.point_p(self.xi_hat, self.h)
+        else:
+            xi_ctrl = self.gt if self.ctrl_on_gt else self.xi_hat
+            q_p = rm.point_p(xi_ctrl, self.h)
+            v, w = rm.controller_twist(q_p, xi_ctrl[2], qd, qd_dot, self.Kp, self.h)
+        # saturar y luego SUAVIZAR (LPF exponencial), igual que el robot real:
+        # es lo que rompe el ciclo límite (serpenteo).
+        v = float(np.clip(v, -sm.V_MAX, sm.V_MAX))
+        w = float(np.clip(w, -sm.W_MAX, sm.W_MAX))
+        a = self.cmd_alpha
+        self.v_cmd_prev = a * v + (1.0 - a) * self.v_cmd_prev
+        self.w_cmd_prev = a * w + (1.0 - a) * self.w_cmd_prev
         msg = Twist()
-        msg.linear.x = float(np.clip(v, -sm.V_MAX, sm.V_MAX))
-        msg.angular.z = float(np.clip(w, -sm.W_MAX, sm.W_MAX))
+        msg.linear.x = self.v_cmd_prev
+        msg.angular.z = self.w_cmd_prev
         self.pub.publish(msg)
 
         gp_ = rm.point_p(self.gt, self.h)
@@ -178,6 +195,7 @@ class KFControlIsaac(Node):
             return
         os.makedirs(self.out_dir, exist_ok=True)
         d = np.array(self.log)
+        np.save(os.path.join(self.out_dir, 'traj.npy'), d)
         t = d[:, 0]; g = d[:, 1:4]; o = d[:, 4:7]; h = d[:, 7:10]; qd = d[:, 10:12]; Pd = d[:, 12:15]
         names = ['x [m]', 'y [m]', 'theta [rad]']
 
@@ -228,6 +246,15 @@ class KFControlIsaac(Node):
 
         def rmse_ang(a, b):
             return float(np.sqrt(np.mean(wrap(a - b) ** 2)))
+
+        # --- métricas de seguimiento / serpenteo (GT del punto vs deseada) ---
+        track = np.sqrt(((g[:, :2] - qd) ** 2).sum(1))            # error punto->deseada
+        rad = np.sqrt(((g[:, :2] - self.center) ** 2).sum(1)) - self.R_traj
+        dr = rad - np.median(rad)
+        ncross = int((np.diff(np.sign(dr)) != 0).sum())           # zig-zags (cruces)
+        self.get_logger().info(
+            f'h={self.h:.2f} Kp={self.Kp[0,0]:.2f} | seguimiento RMS={np.sqrt(np.mean(track**2)):.4f} m '
+            f'| serpenteo: std_radial={rad.std():.4f} m, cruces={ncross}')
         self.get_logger().info(
             f'RMSE vs GT  x: odo={rmse(o[:,0],g[:,0]):.3f} kf={rmse(h[:,0],g[:,0]):.3f} | '
             f'y: odo={rmse(o[:,1],g[:,1]):.3f} kf={rmse(h[:,1],g[:,1]):.3f} | '

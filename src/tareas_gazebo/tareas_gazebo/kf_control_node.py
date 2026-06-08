@@ -53,7 +53,7 @@ class KFControlNode(Node):
         super().__init__('kf_control_node')
         gp = lambda n, v: self.declare_parameter(n, v).value
 
-        self.h = gp('h', 0.15)
+        self.h = gp('h', 0.30)
         kp = gp('kp', 0.8)
         self.Kp = np.diag([kp, kp])
         self.R_traj = gp('traj_radius', 0.6)
