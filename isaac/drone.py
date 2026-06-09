@@ -51,12 +51,24 @@ _TELLO_STL = _TELLO_DAE[:-4] + ".stl"   # respaldo: el .stl del mismo modelo
 # respaldo visual si la conversion de malla falla, y como tamano del cuerpo kinematico.
 _BODY_HALF = (0.09, 0.09, 0.025)
 
+# Orientacion de la malla visual del Tello. La tello.dae viene Y-up: referenciada tal
+# cual en un stage Z-up aparece DE PIE/ladeada (Gazebo la endereza por su loader). Rx+90
+# la deja plana (hélices horizontales). Si queda panza-arriba, cambia a (-90,0,0); si la
+# nariz apunta de lado, añade yaw en el 3er valor (p.ej. (90,0,90)).
+_VISUAL_RPY = (90.0, 0.0, 0.0) # Restaurado a 90 porque el USDZ si venia Y-up
+_VISUAL_SCALE = (0.00015, 0.00015, 0.00015) # Reducido aun mas
+
 # Parametros de camara nadir (tello_con_espejo/model.sdf -> sensor camera_espejo):
 #   pose (0.1, 0, -0.05) respecto a base_link, pitch 90deg (mira hacia abajo).
 #   horizontal_fov ~ 0.940651 rad (el del espejo en tello/model.sdf), 960x720.
 _CAM_LOCAL_POS = (0.1, 0.0, -0.05)
-_CAM_HFOV = 0.940651
-_CAM_W, _CAM_H = 960, 720
+# HFOV del Tello que Gazebo REALMENTE voló = el sensor 'camera_espejo' de
+# tello_con_espejo/model.sdf = 1.4416 rad (82.6°), fx≈546 = camera_tello_sim.yaml que usa
+# el stitcher. (Antes estaba 0.940651/53.9° = el sensor base camera_down EQUIVOCADO → el
+# stitcher escalaba los tiles ×1.73 y el footprint era 2.2m en vez de 3.87m.) 82.6° da
+# footprint 3.87m a z=2.2 → ~75% overlap, cobertura completa del laberinto por foto.
+_CAM_HFOV = 1.4432   # fx = (960/2)/tan(HFOV/2) = 546.4 px, casa con camera_tello_sim.yaml
+_CAM_W, _CAM_H = 960, 720   # resolución original (el fix de publicación manual evita el estancamiento)
 _CAM_NEAR, _CAM_FAR = 0.1, 10.0
 
 # Alturas objetivo de los stubs (la mision/PID esperan z>0.8 para empezar a controlar;
@@ -130,7 +142,7 @@ class IsaacDrone:
                  cmd_topic="/drone1/cmd_vel", odom_topic="/drone1/odom",
                  image_topic="/uav/camera/image", info_topic="/uav/camera/camera_info",
                  camera_frame="drone1_camera", odom_frame="odom",
-                 child_frame="base_link", max_climb=0.6):
+                 child_frame="base_link", max_climb=0.6, z0=0.0):
         self._stage = stage
         self._app = simulation_app
         self._prim_path = prim_path
@@ -143,6 +155,11 @@ class IsaacDrone:
         self._odom_frame = odom_frame
         self._child_frame = child_frame
         self._max_climb = float(max_climb)      # m/s techo de subida del stub takeoff/land
+        # z0 = altura ABSOLUTA del piso del laberinto (cuando el laberinto se sube sobre el
+        # warehouse). El dron vuela/odometriza RELATIVO a este piso: odom z = pos_abs - z0,
+        # y el target de takeoff/land es z0 + (2.2 / 0.1). Así la misión/controlador siguen
+        # en z relativa al piso (2.2 m) sin saber que la escena subió. z0=0 -> sin offset.
+        self._z0 = float(z0)
 
         # Estado cinematico (pose en el mundo).
         self._pos = np.array([float(spawn[0]), float(spawn[1]), float(spawn[2])], dtype=float)
@@ -210,7 +227,7 @@ class IsaacDrone:
         # Preferimos isaac/assets/ del proyecto destino; si no se puede, /tmp.
         _assets_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
         usd_out = os.path.join(_assets_dir if os.path.isdir(_assets_dir) else "/tmp",
-                               "tello_isaac.usd")
+                               "tello_isaac.usdz")
 
         mesh_usd = None
         if os.path.exists(usd_out):
@@ -224,16 +241,30 @@ class IsaacDrone:
 
         if mesh_usd is not None:
             try:
-                UsdGeom.Xform.Define(stage, vis_path)
-                add_reference_to_stage(usd_path=mesh_usd, prim_path=vis_path)   # tutorials/getting_started_robot.py
+                # Xform-wrapper que ROTA la malla a plano (la tello.dae viene Y-up).
+                # La referencia va a un hijo /mesh para no chocar con el xformOp del
+                # wrapper (referenciar sobre el mismo prim mezcla los xformOpOrder).
+                vxf = UsdGeom.Xform.Define(stage, vis_path)
+                vxf.AddRotateXYZOp().Set(Gf.Vec3d(*_VISUAL_RPY))
+                vxf.AddScaleOp().Set(Gf.Vec3d(*_VISUAL_SCALE))
+                ref_path = vis_path + "/mesh"
+                UsdGeom.Xform.Define(stage, ref_path)
+                add_reference_to_stage(usd_path=mesh_usd, prim_path=ref_path)   # tutorials/getting_started_robot.py
                 self._app.update()                                             # poblar la referencia
                 # De-instanciar (las mallas referenciadas llegan como instancias, invisibles a
                 # PrimRange) — mismo truco que jetauto_materials.py (SetInstanceable(False)).
+                self._prop_ops = []
                 for q in Usd.PrimRange(stage.GetPrimAtPath(vis_path)):
                     if q.IsInstanceable():
                         q.SetInstanceable(False)
+                    if 'pervane' in q.GetName().lower():
+                        xform = UsdGeom.Xformable(q)
+                        if xform:
+                            op = xform.AddRotateYOp(UsdGeom.XformOp.PrecisionDouble, "spin")
+                            self._prop_ops.append(op)
+                
                 # No aplicamos colision a la visual (cuerpo kinematico sin aerodinamica).
-                print(f"[DRONE] visual Tello desde {os.path.basename(mesh_usd)}", flush=True)
+                print(f"[DRONE] visual Tello desde {os.path.basename(mesh_usd)} (rpy={_VISUAL_RPY})", flush=True)
                 return
             except Exception as ex:
                 print(f"[DRONE] no pude referenciar la malla ({ex}); uso caja", flush=True)
@@ -263,7 +294,10 @@ class IsaacDrone:
         xf = UsdGeom.Xformable(prim)
         xf.ClearXformOpOrder()
         xf.AddTranslateOp().Set(Gf.Vec3d(*_CAM_LOCAL_POS))
-        xf.AddRotateXYZOp().Set(Gf.Vec3d(180.0, 0.0, 0.0))
+        # NADIR: en USD la cámara mira su -Z local; con el cuerpo nivelado, -Z local = -Z
+        # mundo = ABAJO, así que la orientación IDENTIDAD ya es nadir. El RotateX 180 previo
+        # la volteaba hacia ARRIBA (veía el domo/cielo) -> /uav/camera salía gris uniforme.
+        xf.AddRotateXYZOp().Set(Gf.Vec3d(0.0, 0.0, 0.0))
 
         # Intrinsecos: hFOV ~0.94 rad. Con focal f y apertura h:  hFOV = 2*atan(h/(2f)).
         # Fijamos f=24 (mm en escala USD) y despejamos h. set_focal_length/aperture viven en
@@ -284,54 +318,60 @@ class IsaacDrone:
         if self._cam_graph_built:
             return
         try:
-            from isaacsim.sensors.camera import Camera   # exts/isaacsim.sensors.camera/.../camera.py
+            # Cámara por get_rgba() MANUAL (objeto isaacsim Camera). Es el ÚNICO método que
+            # publica de forma fiable aquí: el ROS2CameraHelper (async, vía grafo) NO publica
+            # datos para esta cámara (render-var stall, antes y después de play; un límite de
+            # Isaac). get_rgba es ~1s/frame -> el loop llama publish_camera con throttle y la
+            # cámara se mantiene caliente con el render de cada paso. (Cuello del RTF.)
+            from isaacsim.sensors.camera import Camera
             self._camera = Camera(prim_path=self._cam_path, resolution=(_CAM_W, _CAM_H))
-            self._camera.initialize()                    # crea el render product (rep.create.render_product)
-            for _ in range(3):
+            self._camera.initialize()
+            for _ in range(5):
                 self._app.update()                       # calentar el render
-            rp_path = self._camera.get_render_product_path()
-            self._build_camera_graph(rp_path)
             self._cam_graph_built = True
             print(f"[DRONE] camara nadir {_CAM_W}x{_CAM_H} -> {self._image_topic} "
-                  f"(render product {rp_path})", flush=True)
+                  f"(get_rgba manual; ROS2CameraHelper no publica datos aquí)", flush=True)
         except Exception as ex:
-            print(f"[DRONE] camara ROS2 deshabilitada ({ex})", flush=True)
+            import traceback
+            print(f"[DRONE] camara ROS2 deshabilitada ({ex})\n{traceback.format_exc()}", flush=True)
 
-    def _build_camera_graph(self, render_product_path):
-        """Grafo ROS2 (push, on-demand) con ROS2CameraHelper(rgb)+ROS2CameraInfoHelper.
-        Patron de standalone_examples/api/isaacsim.ros2.bridge/camera_manual.py, pero
-        usando el render product de NUESTRA Camera (sin crear viewport): conectamos el
-        renderProductPath directamente con SET_VALUES (input token de los .ogn)."""
+    def _build_camera_graph(self, camera_prim_path):
+        """Grafo ROS2 de cámara: IsaacCreateRenderProduct(camera_prim) + ROS2CameraHelper
+        (rgb) + ROS2CameraInfoHelper, añadidos al /ActionGraph (OnPlaybackTick) para que
+        publiquen en CADA render. Patrón de sensors.py (cam_1), que publica continuo."""
+        # Patrón EXACTO de sensors.py (cam_1, que publica continuo): IsaacCreateRenderProduct
+        # crea el render-product OFFSCREEN desde el PRIM de la cámara, y la cadena execIn es
+        # OnTick -> CamRP.execIn -> CamRP.execOut -> CamHelper.execIn. Todo en /ActionGraph
+        # (STRING path = AÑADE al grafo existente OnPlaybackTick).
+        import usdrt
         keys = og.Controller.Keys
-        graph, _, _, _ = og.Controller.edit(
-            {
-                "graph_path": "/DroneCameraGraph",
-                "evaluator_name": "push",
-                "pipeline_stage": og.GraphPipelineStage.GRAPH_PIPELINE_STAGE_ONDEMAND,
-            },
+        og.Controller.edit(
+            "/ActionGraph",
             {
                 keys.CREATE_NODES: [
-                    ("OnTick", "omni.graph.action.OnTick"),
-                    ("CameraHelperRgb", "isaacsim.ros2.bridge.ROS2CameraHelper"),
-                    ("CameraHelperInfo", "isaacsim.ros2.bridge.ROS2CameraInfoHelper"),
+                    ("DroneCamRP", "isaacsim.core.nodes.IsaacCreateRenderProduct"),
+                    ("DroneCamHelperRgb", "isaacsim.ros2.bridge.ROS2CameraHelper"),
+                    ("DroneCamHelperInfo", "isaacsim.ros2.bridge.ROS2CameraInfoHelper"),
                 ],
                 keys.CONNECT: [
-                    ("OnTick.outputs:tick", "CameraHelperRgb.inputs:execIn"),
-                    ("OnTick.outputs:tick", "CameraHelperInfo.inputs:execIn"),
+                    ("/ActionGraph/OnTick.outputs:tick", "DroneCamRP.inputs:execIn"),
+                    ("DroneCamRP.outputs:execOut", "DroneCamHelperRgb.inputs:execIn"),
+                    ("DroneCamRP.outputs:execOut", "DroneCamHelperInfo.inputs:execIn"),
+                    ("DroneCamRP.outputs:renderProductPath", "DroneCamHelperRgb.inputs:renderProductPath"),
+                    ("DroneCamRP.outputs:renderProductPath", "DroneCamHelperInfo.inputs:renderProductPath"),
                 ],
                 keys.SET_VALUES: [
-                    ("CameraHelperRgb.inputs:renderProductPath", render_product_path),
-                    ("CameraHelperRgb.inputs:frameId", self._camera_frame),
-                    ("CameraHelperRgb.inputs:topicName", self._image_topic),
-                    ("CameraHelperRgb.inputs:type", "rgb"),
-                    ("CameraHelperInfo.inputs:renderProductPath", render_product_path),
-                    ("CameraHelperInfo.inputs:frameId", self._camera_frame),
-                    ("CameraHelperInfo.inputs:topicName", self._info_topic),
+                    ("DroneCamRP.inputs:cameraPrim", [usdrt.Sdf.Path(camera_prim_path)]),
+                    ("DroneCamRP.inputs:width", _CAM_W),
+                    ("DroneCamRP.inputs:height", _CAM_H),
+                    ("DroneCamHelperRgb.inputs:type", "rgb"),
+                    ("DroneCamHelperRgb.inputs:topicName", self._image_topic),
+                    ("DroneCamHelperRgb.inputs:frameId", self._camera_frame),
+                    ("DroneCamHelperInfo.inputs:topicName", self._info_topic),
+                    ("DroneCamHelperInfo.inputs:frameId", self._camera_frame),
                 ],
             },
         )
-        # Ejecutar una vez para generar los publishers en el SDGPipeline (camera_manual.py).
-        og.Controller.evaluate_sync(graph)
         self._app.update()
 
     # ----------------------------------------------------------------- ROS2 IO
@@ -356,8 +396,13 @@ class IsaacDrone:
         self._node.create_subscription(Empty, "/drone1/takeoff", lambda _m: self.takeoff(), 1)
         self._node.create_subscription(Empty, "/drone1/land", lambda _m: self.land(), 1)
         self._odom_pub = self._node.create_publisher(Odometry, self._odom_topic, 10)
+        from sensor_msgs.msg import CameraInfo, Image   # publicación MANUAL de la cámara
+        self._Image, self._CameraInfo = Image, CameraInfo
+        self._img_pub = self._node.create_publisher(Image, self._image_topic, 2)
+        self._info_pub = self._node.create_publisher(CameraInfo, self._info_topic, 2)
+        self._cam_ctr = 0
         print(f"[DRONE] ROS2 listo: sub {self._cmd_topic} + /drone1/takeoff,/land ; "
-              f"pub {self._odom_topic}", flush=True)
+              f"pub {self._odom_topic} + {self._image_topic} (manual)", flush=True)
 
     def _on_cmd_vel(self, m):
         # linear.x/y/z en MARCO CUERPO (el PID rota global->cuerpo con el yaw); angular.z=yaw rate.
@@ -375,14 +420,14 @@ class IsaacDrone:
 
     # ------------------------------------------------------------- stubs takeoff
     def takeoff(self):
-        """TelloAction 'takeoff': fija un objetivo de altura (sube a z=2.2 suavemente)."""
-        self._target_z = _TAKEOFF_Z
-        print(f"[DRONE] TAKEOFF -> z={_TAKEOFF_Z}", flush=True)
+        """TelloAction 'takeoff': fija un objetivo de altura (sube a 2.2 m SOBRE el piso)."""
+        self._target_z = self._z0 + _TAKEOFF_Z
+        print(f"[DRONE] TAKEOFF -> z={_TAKEOFF_Z} sobre piso (abs={self._target_z:.2f})", flush=True)
 
     def land(self):
-        """TelloAction 'land': fija objetivo de altura al suelo (z=0.1)."""
-        self._target_z = _LAND_Z
-        print(f"[DRONE] LAND -> z={_LAND_Z}", flush=True)
+        """TelloAction 'land': fija objetivo de altura al piso (0.1 m sobre el piso)."""
+        self._target_z = self._z0 + _LAND_Z
+        print(f"[DRONE] LAND -> z={_LAND_Z} sobre piso (abs={self._target_z:.2f})", flush=True)
 
     # ----------------------------------------------------------------- dinamica
     def step(self, dt):
@@ -391,6 +436,23 @@ class IsaacDrone:
         dt = float(dt)
         if dt <= 0.0:
             return
+
+        # Animar helices si esta despegado (z > 0.05) con Frame Skipping
+        if hasattr(self, '_prop_ops') and self._prop_ops and self._pos[2] > 0.05:
+            if not hasattr(self, '_prop_timer'):
+                self._prop_timer = 0.0
+                self._prop_angle = 0.0
+            
+            self._prop_timer += dt
+            # Solo actualizar visualmente unas 20 veces por segundo (cada 0.05s)
+            if self._prop_timer >= 0.05:
+                # Girar muy rapido (miles de grados por segundo en simulacion)
+                self._prop_angle += 2000.0 * self._prop_timer
+                if self._prop_angle > 360.0:
+                    self._prop_angle %= 360.0
+                for op in self._prop_ops:
+                    op.Set(self._prop_angle)
+                self._prop_timer = 0.0
 
         # 1) yaw (angular.z).
         self._yaw += self._cmd["wz"] * dt
@@ -411,8 +473,8 @@ class IsaacDrone:
         # 4) integrar posicion.
         self._world_vel[:] = (vx_w, vy_w, vz)
         self._pos = self._pos + self._world_vel * dt
-        if self._pos[2] < 0.0:
-            self._pos[2] = 0.0
+        if self._pos[2] < self._z0:            # no bajar del piso del laberinto (abs z0)
+            self._pos[2] = self._z0
             self._world_vel[2] = 0.0
 
         # 5) escribir la pose objetivo en el cuerpo kinematico (PhysX la respeta exacta).
@@ -439,7 +501,7 @@ class IsaacDrone:
         msg.child_frame_id = self._child_frame
         msg.pose.pose.position.x = float(self._pos[0])
         msg.pose.pose.position.y = float(self._pos[1])
-        msg.pose.pose.position.z = float(self._pos[2])
+        msg.pose.pose.position.z = float(self._pos[2] - self._z0)   # RELATIVO al piso del laberinto
         w, x, y, z = _yaw_to_quat(self._yaw)
         msg.pose.pose.orientation.w = float(w)
         msg.pose.pose.orientation.x = float(x)
@@ -450,6 +512,58 @@ class IsaacDrone:
         msg.twist.twist.linear.z = float(self._world_vel[2])
         msg.twist.twist.angular.z = float(self._cmd["wz"])
         self._odom_pub.publish(msg)
+        # La cámara NO se publica aquí: el loop llama publish_camera() SOLO en frames de
+        # render (donde hay un frame fresco). Llamar get_rgba en pasos física-solo devolvía
+        # None y forzaba renders extra -> mataba el RTF. Odom sí va cada paso (es barato).
+
+    def publish_camera(self):
+        """Publica /uav/camera/image (+camera_info) con get_rgba(). El orquestador la llama
+        SOLO en frames de RENDER (tras simulation_app.update()), donde hay un frame fresco;
+        así no se fuerza render en pasos física-solo (clave para el RTF). La misión solo
+        necesita 1 frame por waypoint y el dron espera ahí > el periodo de render."""
+        if getattr(self, "_img_pub", None) is None or self._camera is None:
+            return
+        try:
+            import numpy as np
+            rgba = self._camera.get_rgba()
+            # El render-var de la cámara LAG ~1 frame: tras pasos sin captura queda frío y
+            # get_rgba() sale None. Un update() extra justo antes de releer lo deja listo.
+            # Como publish_camera SOLO se llama en hover (waypoint), este costo NO afecta el
+            # RTF del vuelo. Reintenta hasta 6 veces (recupera la cámara aunque venga fría).
+            for _ in range(6):
+                if rgba is not None and getattr(rgba, "size", 0) > 0:
+                    break
+                self._app.update()
+                rgba = self._camera.get_rgba()
+        except Exception:
+            return
+        if rgba is None or getattr(rgba, "size", 0) == 0:
+            return
+        rgb = rgba[:, :, :3]
+        if rgb.dtype != np.uint8:
+            rgb = (np.clip(rgb, 0.0, 1.0) * 255).astype(np.uint8)
+        rgb = np.ascontiguousarray(rgb)
+        h, w = int(rgb.shape[0]), int(rgb.shape[1])
+        stamp = self._node.get_clock().now().to_msg()
+        img = self._Image()
+        img.header.stamp = stamp
+        img.header.frame_id = self._camera_frame
+        img.height, img.width = h, w
+        img.encoding = "rgb8"
+        img.is_bigendian = 0
+        img.step = w * 3
+        img.data = rgb.tobytes()
+        self._img_pub.publish(img)
+        # camera_info con intrínsecos del FOV (fx=fy, cx/cy al centro)
+        fx = (w / 2.0) / math.tan(_CAM_HFOV / 2.0)
+        info = self._CameraInfo()
+        info.header = img.header
+        info.height, info.width = h, w
+        info.distortion_model = "plumb_bob"
+        info.d = [0.0, 0.0, 0.0, 0.0, 0.0]
+        info.k = [fx, 0.0, w / 2.0, 0.0, fx, h / 2.0, 0.0, 0.0, 1.0]
+        info.p = [fx, 0.0, w / 2.0, 0.0, 0.0, fx, h / 2.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+        self._info_pub.publish(info)
 
     # ------------------------------------------------------------------ varios
     def get_pose(self):
