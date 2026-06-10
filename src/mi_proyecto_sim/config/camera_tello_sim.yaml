@@ -1,0 +1,7 @@
+camera_matrix:
+  data: [546.4, 0.0, 480.0, 0.0, 546.4, 360.0, 0.0, 0.0, 1.0]
+distortion_coefficients:
+  data: [0.0, 0.0, 0.0, 0.0, 0.0]
+image_width: 960
+image_height: 720
+camera_rotation_deg: -90.0

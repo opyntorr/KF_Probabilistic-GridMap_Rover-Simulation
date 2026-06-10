@@ -106,6 +106,7 @@ class MisionDron(Node):
         self.latest_image = None
         self.current_pose = None
         self.optitrack_yaw = None
+        self.optitrack_full_pose = None
         self.use_optitrack_pose = self.get_parameter('use_optitrack_pose').get_parameter_value().bool_value
 
         qos_be = QoSProfile(
@@ -176,11 +177,12 @@ class MisionDron(Node):
         self.latest_image = msg
 
     def _optitrack_cb(self, msg):
-        if msg.header.frame_id != 'drone':
-            return
+        p = msg.pose.position
         q = msg.pose.orientation
-        self.optitrack_yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
-                                        1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+        yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
+                         1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+        self.optitrack_yaw = yaw
+        self.optitrack_full_pose = (p.x, p.y, p.z, yaw)
 
     def _odom_cb(self, msg):
         p = msg.pose.pose.position
@@ -477,15 +479,19 @@ class MisionDron(Node):
         # de la odometria FUSIONADA con OptiTrack: ground-truth de gz en sim / OptiTrack real,
         # SIN el drift de la odometria normal). Es la base para un stitching consistente.
         # Sin OptiTrack (o sin pose aun), caemos a la nominal del waypoint.
-        if self.use_optitrack_pose and self.current_pose is not None:
-            ox, oy, oz, oyaw = self.current_pose
+        if self.use_optitrack_pose and self.optitrack_full_pose is not None:
+            ox, oy, oz, oyaw = self.optitrack_full_pose
             pose_src = 'optitrack'
+        elif self.use_optitrack_pose and self.current_pose is not None:
+            ox, oy, oz, oyaw = self.current_pose
+            pose_src = 'optitrack_from_odom'
         else:
             ox, oy, oz = WAYPOINTS[idx]
             oyaw = 0.0
             pose_src = 'nominal'
-        # yaw directo de OptiTrack si llega por /optitrack/rigid_body (real)
-        if self.optitrack_yaw is not None:
+        
+        # yaw directo de OptiTrack si esta disponible y no se uso full pose
+        if pose_src != 'optitrack' and self.optitrack_yaw is not None:
             oyaw = self.optitrack_yaw
             pose_src = pose_src + '+optitrack_yaw'
 
@@ -517,15 +523,9 @@ class MisionDron(Node):
     def _postprocess(self):
         stitch_out = self.out_dir / 'stitching'
         stitch_out.mkdir(exist_ok=True)
-        # Stitcher en C++ (~2.7x mas rapido). Fallback al Python si el binario no esta.
-        # El binario vive junto a este .py en el install (lib/mi_proyecto_sim/stitch_pose).
-        stitch_bin = Path(__file__).resolve().parent / 'stitch_pose'
-        common = ['--input', str(self.fotos_dir), '--output', str(stitch_out),
-                  '--map-name', 'occupancy_map', '--use-image-yaw', '--skip-refine', '--tape-snap']
-        if stitch_bin.exists():
-            cmd = [str(stitch_bin)] + common            # C++ (phaseCorrelate; usa --sift para SIFT)
-        else:
-            cmd = ['python3', '-m', 'mision.stitch_pose'] + common
+        # Stitcher Pose (C++) / (Python port)
+        camera_yaml = STITCH_POSICION_PKG_DIR / 'config' / 'camera_tello_sim.yaml'
+        cmd = ['python3', '-m', 'mision.stitch_pose', '--input', str(self.fotos_dir), '--output', str(stitch_out), '--camera', str(camera_yaml), '--use-image-yaw', '--tape-snap']
         self.get_logger().info(f'Stitching: {" ".join(cmd)} (cwd={STITCH_POSICION_PKG_DIR})')
         result = subprocess.run(
             cmd, capture_output=True, text=True,
@@ -674,7 +674,7 @@ class MisionDron(Node):
 
         best_detections = {}
 
-        for img_path in sorted(self.fotos_dir.glob('wp_*.png')):
+        for img_path in sorted(list(self.fotos_dir.glob('wp_*.png')) + list(self.fotos_dir.glob('wp_*.jpg'))):
             json_path = img_path.with_suffix('.json')
             if not json_path.exists():
                 continue
