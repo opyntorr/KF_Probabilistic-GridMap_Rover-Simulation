@@ -30,6 +30,8 @@ try:
 except Exception:
     _GRAIN = _REPO_GRAIN if os.path.exists(_REPO_GRAIN) else _GRAIN
 
+_REPO_ARUCO = os.path.join(_HERE, "..", "src", "mi_proyecto_sim", "models", "marcador_aruco", "materials", "textures", "aruco4.png")
+
 # spec = {color, metallic, roughness, extra:{input_OmniPBR: valor}}
 # 'extra' solo aplica en OmniPBR (el fallback UsdPreviewSurface lo ignora).
 # Verde anodizado INTERMEDIO: satinado metálico + grano FINO y SUTIL (que se note el
@@ -42,13 +44,15 @@ GREEN_ANODIZED = {
         "texture_scale": (60.0, 60.0),   # grano muy fino
         "normalmap_texture": _GRAIN,
         "bump_factor": 0.2,              # grano sutil (0.6 era el fuerte)
-    },
+    }
 }
 MATTE_BLACK = {"color": (0.02, 0.02, 0.02), "metallic": 0.0, "roughness": 0.85, "extra": {}}
+MATTE_WHITE = {"color": (0.95, 0.95, 0.95), "metallic": 0.0, "roughness": 0.85, "extra": {}}
 
 # Clasificacion por nombre de link (substring de la ruta del prim).
 GREEN_LINKS = ("base_link",)
 # Links sin visual (frames) — no tienen mallas, se ignoran solos.
+
 
 
 def _set_extra(shader, name, val):
@@ -129,6 +133,7 @@ def apply_jetauto_materials(stage, prim_path, green_links=GREEN_LINKS):
     looks = robot_root + "/Looks"
     green = _make_material(stage, looks + "/GreenAnodizedAluminum", GREEN_ANODIZED)
     black = _make_material(stage, looks + "/MatteBlackPlastic", MATTE_BLACK)
+    white = _make_material(stage, looks + "/MatteWhitePlastic", MATTE_WHITE)
 
     def _is_green(path):
         return any(("/" + gl) in path for gl in green_links)
@@ -150,10 +155,20 @@ def apply_jetauto_materials(stage, prim_path, green_links=GREEN_LINKS):
         if not path.startswith(robot_root + "/") or "collision" in path.lower():
             continue
         if prim.IsA(UsdGeom.Gprim):
-            _bind(prim, _is_green(path))
+            if "aruco_black" in path.lower():
+                UsdShade.MaterialBindingAPI.Apply(prim).Bind(black, UsdShade.Tokens.strongerThanDescendants)
+            elif "aruco" in path.lower():
+                UsdShade.MaterialBindingAPI.Apply(prim).Bind(white, UsdShade.Tokens.strongerThanDescendants)
+            else:
+                _bind(prim, _is_green(path))
             n_mesh += 1
         elif prim.GetName().endswith("_link"):
-            _bind(prim, prim.GetName() in green_links)
+            if "aruco_black" in prim.GetName().lower():
+                UsdShade.MaterialBindingAPI.Apply(prim).Bind(black, UsdShade.Tokens.strongerThanDescendants)
+            elif "aruco" in prim.GetName().lower():
+                UsdShade.MaterialBindingAPI.Apply(prim).Bind(white, UsdShade.Tokens.strongerThanDescendants)
+            else:
+                _bind(prim, prim.GetName() in green_links)
             n_link += 1
 
     print(f"[materials] de-instanciados={len(to_deinst)}  mallas bindeadas={n_mesh}  "

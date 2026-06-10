@@ -1,0 +1,127 @@
+<?xml version="1.0" ?>
+<sdf version="1.9">
+  <model name="tello">
+    <link name="base_link">
+      <inertial>
+        <mass>0.1</mass>
+        <inertia>
+          <ixx>0.000290833</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>0.00054</iyy>
+          <iyz>0</iyz>
+          <izz>0.000290833</izz>
+        </inertia>
+      </inertial>
+
+      <collision name="collision">
+        <geometry>
+          <box>
+            <size>0.18 0.18 0.05</size>
+          </box>
+        </geometry>
+      </collision>
+
+      <!-- Visual: mesh real del DJI Tello.
+           Fuente: bingyo/tello_ros_gazebo (tello_description/meshes/tello.dae), Apache-2.0.
+           El DAE está en metros, +X adelante, Z arriba (up_axis Z_UP + rotación de nodo),
+           por eso no necesita <scale> ni rpy. Material propio (gris oscuro) embebido.
+           Si en el sim apareciera tumbado, añadir aquí <pose>0 0 0 1.5708 0 0</pose>. -->
+      <visual name="body">
+        <geometry>
+          <mesh>
+            <uri>model://tello/meshes/tello.dae</uri>
+          </mesh>
+        </geometry>
+      </visual>
+
+      <!-- Camera Sensor (frontal original) -->
+      <sensor name="camera" type="camera">
+        <pose>0.035 0 0 0 0 0</pose>
+        <always_on>1</always_on>
+        <update_rate>30</update_rate>
+        <visualize>false</visualize>
+        <topic>drone1/camera</topic>
+        <camera>
+          <horizontal_fov>0.96</horizontal_fov>
+          <image>
+            <width>960</width>
+            <height>720</height>
+            <format>R8G8B8</format>
+          </image>
+          <clip>
+            <near>0.1</near>
+            <far>300</far>
+          </clip>
+        </camera>
+      </sensor>
+
+    </link>
+
+    <!--
+      Link separado para la cámara inferior (espejo físico).
+      Al estar en su propio link desacoplado de base_link, Gazebo no ocluye
+      la vista con la geometría de colisión/visual del cuerpo del dron.
+      Misma arquitectura que agv_uav_project/tello_con_espejo/model.sdf.
+
+      Intrínsicos de calibración real (tablero ChArUco):
+        fx=944.1845  fy=957.6180  cx=476.6866  cy=369.8251
+        k1=0.0348  k2=-0.1888  p1=0.0056  p2=0.0015  k3=0.5449
+        RMS=0.5737 px → noise stddev = 0.5737/255 ≈ 0.00225
+    -->
+    <link name="espejo_link">
+      <pose>0 0 0 0 0 0</pose>
+      <inertial>
+        <mass>1e-6</mass>
+        <inertia>
+          <ixx>1e-6</ixx><iyy>1e-6</iyy><izz>1e-6</izz>
+          <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz>
+        </inertia>
+      </inertial>
+
+      <sensor name="camera_down" type="camera">
+        <pose>0.1 0 -0.05 0 1.570796 0</pose>
+        <always_on>1</always_on>
+        <update_rate>30</update_rate>
+        <visualize>false</visualize>
+        <topic>drone1/camera_down</topic>
+        <camera name="camera_down">
+          <horizontal_fov>0.940651</horizontal_fov>
+          <image>
+            <width>960</width>
+            <height>720</height>
+            <format>R8G8B8</format>
+          </image>
+          <clip>
+            <near>0.1</near>
+            <far>10.0</far>
+          </clip>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>0.002250</stddev>
+          </noise>
+          <lens>
+            <type>stereographic</type>
+            <scale_to_hfov>true</scale_to_hfov>
+          </lens>
+        </camera>
+      </sensor>
+    </link>
+
+    <!-- Joint fijo que acopla espejo_link a base_link (masa despreciable) -->
+    <joint name="espejo_joint" type="fixed">
+      <parent>base_link</parent>
+      <child>espejo_link</child>
+    </joint>
+
+    <!-- Plugins -->
+    <plugin
+      filename="TelloPlugin"
+      name="tello_gazebo::TelloPlugin">
+      <namespace>drone1</namespace>
+      <link_name>base_link</link_name>
+      <center_of_mass>0 0 0</center_of_mass>
+    </plugin>
+  </model>
+</sdf>

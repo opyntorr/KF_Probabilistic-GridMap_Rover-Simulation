@@ -1,0 +1,23 @@
+- ros_topic_name: "/clock"
+  gz_topic_name: "/clock"
+  ros_type_name: "rosgraph_msgs/msg/Clock"
+  gz_type_name: "gz.msgs.Clock"
+  direction: 1 # GZ -> ROS
+
+- ros_topic_name: "/drone1/cmd_vel"
+  gz_topic_name: "/drone1/cmd_vel"
+  ros_type_name: "geometry_msgs/msg/Twist"
+  gz_type_name: "gz.msgs.Twist"
+  direction: 0 # ROS -> GZ
+
+- ros_topic_name: "/drone1/camera"
+  gz_topic_name: "/drone1/camera"
+  ros_type_name: "sensor_msgs/msg/Image"
+  gz_type_name: "gz.msgs.Image"
+  direction: 1 # GZ -> ROS
+
+- ros_topic_name: "/drone1/odom"
+  gz_topic_name: "/drone1/odom"
+  ros_type_name: "nav_msgs/msg/Odometry"
+  gz_type_name: "gz.msgs.Odometry"
+  direction: 1 # GZ -> ROS

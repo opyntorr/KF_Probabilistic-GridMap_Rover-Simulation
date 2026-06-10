@@ -23,6 +23,10 @@ services:
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       - ./src:/ros2_ws/src:rw
+      - ./install:/ros2_ws/install:rw
+      - ./build:/ros2_ws/build:rw
+      - ./log:/ros2_ws/log:rw
+      - ./isaac:/ros2_ws/isaac:rw
       # Tareas de navegacion probabilistica (Kalman + mapa de ocupacion).
       - ./tareas:/ros2_ws/tareas:rw
       - /dev/input:/dev/input:ro

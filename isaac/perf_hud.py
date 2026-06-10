@@ -69,7 +69,14 @@ def enable_stats_overlay(display_options: int = DISPLAY_OPTIONS_STATS) -> bool:
         settings.set("/persistent/app/viewport/displayOptions", int(display_options))
         # algunos builds leen también la clave no-persistente del viewport activo
         settings.set("/app/viewport/displayOptions", int(display_options))
-        # forzar que la barra de stats del viewport esté visible (omni.kit.viewport.window)
+
+        # HUD NATIVO de Isaac (lo que se ve al abrir una instancia normal): FPS + Device
+        # Memory + Host Memory + Resolution en la esquina del viewport. Son toggles por
+        # viewport bajo .../hud/<item>/visible (claves reales del install: omni.kit.viewport
+        # .window). El SimulationApp scripted los arranca apagados; los encendemos aquí.
+        _vp = "/persistent/app/viewport/Viewport/Viewport0/hud"
+        for _k in ("", "/renderFPS", "/deviceMemory", "/hostMemory", "/renderResolution"):
+            settings.set(f"{_vp}{_k}/visible", True)
         settings.set("/persistent/app/viewport/Viewport/Viewport0/fillViewport", False)
         return True
     except Exception as e:  # noqa: BLE001

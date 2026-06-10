@@ -52,6 +52,13 @@ AGENTS.md
 .continue/
 .github/copilot-instructions.md
 
+# --- Core dumps (volcados de crash, p.ej. driver ydlidar) ---
+core
+core.*
+
+# --- Salidas de mision por corrida (regenerables: stitching / mapa de ocupacion) ---
+mision_output/
+
 # --- Artefactos varios ---
 *.bag
 *.swp

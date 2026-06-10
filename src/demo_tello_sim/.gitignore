@@ -1,0 +1,28 @@
+# ROS 2 build files
+build/
+install/
+log/
+
+# Tello reports and plots
+src/tello_control_pos/tello_control_pos/*.png
+src/tello_control_pos/tello_control_pos/*.csv
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Camera Calibration & Stitching
+camera_calibration/stitching_input/
+camera_calibration/stitching_output/
+camera_calibration/images/
+camera_calibration/calibration_output/
+camera_calibration/__pycache__/
+
+# OptiTrack related
+src/tello-optitrack/
+
+# Editor / AI tool config
+.codex
+src/.codex
+CLAUDE.md
+

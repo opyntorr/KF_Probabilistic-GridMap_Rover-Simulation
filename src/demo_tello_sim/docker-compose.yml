@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  tello_sim:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tello_sim_x10
+    # Red en modo host para evitar problemas de descubrimiento de nodos ROS 2
+    network_mode: host
+    # Mantener el contenedor en ejecución de forma interactiva
+    stdin_open: true
+    tty: true
+    privileged: true
+    # GPU NVIDIA para renderizado acelerado (Ignition Ogre2)
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      # Pasar la variable de entorno de la pantalla para las GUIs (Gazebo/RViz)
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+    volumes:
+      # Mapear la carpeta src local al workspace del contenedor
+      - ./src:/ros2_ws/src
+      # Compartir el socket de X11 para renderizado gráfico
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      # Mapear dispositivos de entrada (joystick/gamepad)
+      - /dev/input:/dev/input
+      # Fotos del Tello accesibles desde el host en ./tello_fotos/
+      - ./tello_fotos:/tmp/tello_fotos

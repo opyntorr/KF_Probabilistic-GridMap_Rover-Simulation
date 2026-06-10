@@ -1,0 +1,64 @@
+<?xml version="1.0"?>
+<!--
+  ros2_control + ign_ros2_control for the JetAuto sim.
+  The 4 mecanum wheels expose a VELOCITY command interface (the real robot commands
+  wheel SPEED, not torque -> velocity control is the faithful sim-to-real choice).
+  jetauto_chassis_sim.py turns /cmd_vel into the 4 wheel velocities (real mecanum.py
+  inverse kinematics) and publishes them to /velocity_controller/commands.
+  Roller joints are passive (not actuated) and are simulated by gz physics directly.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="jetauto_control" params="prefix">
+
+    <ros2_control name="JetautoIgnitionSystem" type="system">
+      <hardware>
+        <plugin>ign_ros2_control/IgnitionSystem</plugin>
+      </hardware>
+      <joint name="${prefix}front_left_wheel_joint">
+        <command_interface name="velocity"><param name="min">-30.0</param><param name="max">30.0</param></command_interface>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+      <joint name="${prefix}front_right_wheel_joint">
+        <command_interface name="velocity"><param name="min">-30.0</param><param name="max">30.0</param></command_interface>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+      <joint name="${prefix}back_left_wheel_joint">
+        <command_interface name="velocity"><param name="min">-30.0</param><param name="max">30.0</param></command_interface>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+      <joint name="${prefix}back_right_wheel_joint">
+        <command_interface name="velocity"><param name="min">-30.0</param><param name="max">30.0</param></command_interface>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+    </ros2_control>
+
+    <gazebo>
+      <plugin filename="ign_ros2_control-system" name="ign_ros2_control::IgnitionROS2ControlPlugin">
+        <parameters>$(find mi_proyecto_sim)/config/jetauto_controllers.yaml</parameters>
+      </plugin>
+    </gazebo>
+
+    <!-- Odometria NATIVA de gz: publica odom->base_footprint directo de la pose del modelo
+         en el simulador (igual que el rosmaster). Robusto ante RTF bajo: no depende de la
+         cadena chassis_sim(dead-reckoning)+EKF, que se desincronizaba cuando la fisica pesada
+         de las 48 ruedas-rodillo bajaba el RTF (SLAM perdia odom->base_footprint -> "unconnected
+         trees" / "lidar invalido"). El chassis_sim SE MANTIENE, pero solo para convertir
+         /cmd_vel en velocidades de rueda; su /odom_raw y el EKF ya no se usan para la TF. -->
+    <gazebo>
+      <plugin filename="ignition-gazebo-odometry-publisher-system"
+              name="ignition::gazebo::systems::OdometryPublisher">
+        <odom_frame>odom</odom_frame>
+        <robot_base_frame>${prefix}base_footprint</robot_base_frame>
+        <odom_publish_frequency>50</odom_publish_frequency>
+        <odom_topic>/model/jetauto/odometry</odom_topic>
+        <tf_topic>/model/jetauto/tf</tf_topic>
+        <dimensions>2</dimensions>
+      </plugin>
+    </gazebo>
+
+  </xacro:macro>
+</robot>

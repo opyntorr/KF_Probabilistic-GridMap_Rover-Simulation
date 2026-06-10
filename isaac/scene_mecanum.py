@@ -36,7 +36,7 @@ LIDAR_CONFIG = "RPLIDAR_S2E"
 _ASSETS = "/home/opyntorr/isaacsim_assets/Assets/Isaac/4.5/Isaac/Environments"
 EXTRA_USDS = [
     {"path": f"{_ASSETS}/Grid/gridroom_curved.usd", "at": (0.0, 0.0, 0.0), "collision": True},
-    {"path": f"{_ASSETS}/Modular_Warehouse/Props/warehouse_h10m_center.usd", "at": (0.0, 0.0, 0.0), "collision": True, "spawn_on": True, "spawn_z": 1.1},
+    {"path": f"{_ASSETS}/Modular_Warehouse/Props/warehouse_h10m_center.usd", "at": (0.0, 0.0, 0.0), "collision": True, "spawn_on": True, "spawn_z": 1.1, "floor_z": 1.30},
 ]
 
 # cinemática mecanum (misma que rover_model/sensor_models)
@@ -70,14 +70,24 @@ parser.add_argument("--maxdepen", type=float, default=-1.0)
 parser.add_argument("--roller-shape", default="sphere")
 parser.add_argument("--apply-perstep", action="store_true")
 parser.add_argument("--no-extra", action="store_true", help="no cargar los USDs de EXTRA_USDS")
+parser.add_argument("--no-roof", action="store_true", help="ocultar el techo alto del warehouse para mejorar RTF")
 parser.add_argument("--ground", action="store_true", help="forzar el plano de piso propio aunque haya escenario")
 parser.add_argument("--no-ground", action="store_true", help="no crear plano de piso propio (usa el piso del escenario)")
 parser.add_argument("--urdf", default=URDF_PATH)
-parser.add_argument("--x", type=float, default=None)
-parser.add_argument("--y", type=float, default=None)
+parser.add_argument("--x", type=float, default=-1.3)
+parser.add_argument("--y", type=float, default=1.3)
 parser.add_argument("--z", type=float, default=0.05)
-parser.add_argument("--yaw", type=float, default=None)
+parser.add_argument("--yaw", type=float, default=-1.5708)
 parser.add_argument("--friction", type=float, default=1.0, help="μ estática=dinámica de ruedas/suelo")
+parser.add_argument("--dome", type=float, default=700.0, help="intensidad DomeLight (baja con exposición fija)")
+parser.add_argument("--distant", type=float, default=1000.0, help="intensidad DistantLight")
+parser.add_argument("--env", action="store_true",
+                    help="cargar el entorno Isaac (grid + warehouse de EXTRA_USDS) también "
+                         "en el laberinto para iluminación realista; quita el DomeLight manual")
+parser.add_argument("--render-every", type=int, default=1, dest="render_every",
+                    help="RTF: renderiza (refresca cámaras) cada N pasos; los demás son física "
+                         "SOLO (sin render) -> sube el RTF mucho. 1=cada paso (default). 8-12 recomendado "
+                         "para la misión del dron (la cámara solo se necesita en los waypoints).")
 parser.add_argument("--world", default="", help="mundo a cargar: 'laberinto' (URDF estático con mallas STL) o ''")
 parser.add_argument("--record", action="store_true",
                     help="graba una cámara cenital a mp4 durante la rutina (Kelly)")
@@ -98,6 +108,36 @@ if args.yaw is None:
     args.yaw = math.pi / 2 if _spawn_corner else 0.0
 
 simulation_app = SimulationApp({"renderer": "RaytracedLighting", "headless": args.headless})
+
+# --- Exposición fija para cámaras (stitching / ArUco) ----------------------
+# La auto-exposición RTX (histograma) sube la ganancia en escenas oscuras: el piso
+# 0.08 sale gris claro y los colores azul/amarillo se lavan a blanco; y ADEMÁS varía
+# por frame (el mismo piso se ve distinto en cada foto -> mosaico inconsistente). La
+# apagamos cuando hay cámaras para que los colores salgan FIELES y CONSISTENTES entre
+# fotos (prerrequisito del stitcher por pose). Solo afecta corridas con cámara.
+if args.drone or args.camera or args.cameras or args.aruco:
+    import carb as _carb
+    _cs = _carb.settings.get_settings()
+    _cs.set("/rtx/post/histogram/enabled", False)        # auto-exposición OFF (solo esto)
+    # NO tocar cameraShutter/fNumber/filmISO: activan el tonemap de cámara FÍSICA que
+    # SOBREEXPONE el render (el diagnóstico top-down con solo histogram=False expone bien,
+    # floor ~70 a dome 300; con shutter/fNumber/ISO la vista del dron se lavaba a V~220).
+    # Recortes RTX: el laberinto es MATE (roughness 0.9) -> GI (indirectDiffuse), reflejos
+    # y AO cuestan MUCHO por frame y aportan casi nada; quitarlos ACELERA el render (clave
+    # para el RTF) y da colores MÁS fieles (sin contaminación por rebote). Se aplican SIEMPRE
+    # que haya cámara — también en GUI, porque la misión corre en GUI (la cámara solo publica
+    # con el viewport de GUI; en headless el ROS2CameraHelper no publica, ni el ejemplo de NV).
+    _cs.set("/rtx/indirectDiffuse/enabled", False)
+    _cs.set("/rtx/reflections/enabled", False)
+    _cs.set("/rtx/ambientOcclusion/enabled", False)
+    _cs.set("/rtx/directLighting/sampledLighting/enabled", True)   # muestreo directo eficiente
+    print("[RTX] auto-exposicion OFF + GI/reflejos/AO OFF (render rápido, color fiel)")
+    if args.headless:
+        # En headless el viewport principal (1280x720 del .kit) renderiza desperdiciado;
+        # lo encogemos. En GUI NO (ahí quieres ver el viewport).
+        _cs.set("/app/renderer/resolution/width", 256)
+        _cs.set("/app/renderer/resolution/height", 256)
+        print("[PERF] headless: viewport principal 256x256")
 
 import numpy as np
 import omni.graph.core as og
@@ -185,13 +225,26 @@ print(f"[FIS] fricción μ={args.friction}", flush=True)
 # Patrón PROBADO (= EXTRA_USDS): STL->USD (asset_converter) + colisión de malla "none"
 # + colores planos = Gazebo (clave para el stitching del dron). NO por URDF (un import
 # URDF dejaba un convexHull combinado y el robot caía; ver world_loader.py).
+_floor_top = 0.0   # cara superior del piso del laberinto (carro/cubo se apoyan AHÍ, no z=0)
 if args.world == "laberinto":
     from world_loader import load_laberinto
-    _maze_path, _maze_bb = load_laberinto(stage, simulation_app, mat_path=mat_path)
+    # SUBIR el laberinto al piso interior del warehouse (floor_z) cuando se carga el entorno
+    # decorativo, en vez de bajar el warehouse (el grid lo enterraba). z_base=0 sin entorno.
+    _z_base = 0.0
+    if not args.no_extra:
+        for _e in EXTRA_USDS:
+            if _e.get("floor_z"):
+                _z_base = float(_e["floor_z"]); break
+    _maze_path, _maze_bb, _floor_top = load_laberinto(stage, simulation_app,
+                                                      mat_path=mat_path, z_base=_z_base)
 
 # Plano de piso PROPIO: solo cuando NO hay escenario importado (si hay, el robot se
 # apoya en el piso del escenario; un plano propio en z=0 lo pisaría/enterraría).
-_load_extras = (not args.no_extra) and len(EXTRA_USDS) > 0 and not args.world
+# Entorno decorativo (grid curvo + nave warehouse) cargado POR DEFECTO también con el
+# laberinto, para recuperar el "look" del escenario de pruebas anterior (lo pidió el
+# usuario). Se desactiva con --no-extra. Con un --world se cargan SIN colisión (solo
+# fondo visual): el robot vive en el laberinto, no en la nave.
+_load_extras = (not args.no_extra) and len(EXTRA_USDS) > 0
 _make_ground = args.ground or (not args.no_ground and not _load_extras and not args.world)
 if _make_ground:
     omni.kit.commands.execute(
@@ -207,14 +260,20 @@ if _make_ground:
 else:
     print("[FIS] sin plano propio: el robot se apoya en el piso del escenario")
 
-light = UsdLux.DistantLight.Define(stage, Sdf.Path("/DistantLight"))
-light.CreateIntensityAttr(1000)
-
-# Dome light: entorno uniforme para que los materiales METÁLICOS (aluminio anodizado)
-# reflejen algo y no se vean negros. Sin esto, con solo el DistantLight el metal sale oscuro.
-dome = UsdLux.DomeLight.Define(stage, Sdf.Path("/DomeLight"))
-dome.CreateIntensityAttr(700)
-dome.CreateColorAttr(Gf.Vec3f(0.9, 0.93, 1.0))
+# Iluminación = la del commit KF_Probabilistic-GridMap: DistantLight 1000 + DomeLight 700
+# (blanco-frío). Los USD del entorno (grid + warehouse) NO traen luces propias (verificado),
+# así que esta es TODA la luz: sin el domo la escena queda plana y los metales negros. El
+# domo se apaga con --dome 0 si se prefiere solo la direccional.
+# light = UsdLux.DistantLight.Define(stage, Sdf.Path("/DistantLight"))
+# light.CreateIntensityAttr(args.distant)
+# light.CreateAngleAttr(1.0)            # disco solar ~1° -> sombras suaves (no duras de punto)
+if args.dome > 0.0:
+    dome = UsdLux.DomeLight.Define(stage, Sdf.Path("/DomeLight"))
+    dome.CreateIntensityAttr(args.dome)
+    dome.CreateColorAttr(Gf.Vec3f(0.9, 0.93, 1.0))
+    print(f"[LUZ] DistantLight=OFF  DomeLight={args.dome:.0f} (como el commit)")
+else:
+    print(f"[LUZ] DistantLight=OFF  DomeLight=OFF (--dome 0)")
 
 # --- 2c) USDs extra (entornos/props) cargados por defecto ------------------
 # Muchos assets tienen el pivote en una ESQUINA (la geometría arranca en el origen),
@@ -232,26 +291,43 @@ if _load_extras:
         ax, ay, az = e.get("at", (0.0, 0.0, 0.0))
         if e.get("center", True):
             bb = compute_aabb(bbcache, p, include_children=True)  # [xmin,ymin,zmin,xmax,ymax,zmax]
+            # base del asset sobre el piso del grid (z=0): centrado normal. El warehouse
+            # queda ASENTADO en el grid (no enterrado bajo él) y su piso interior queda a
+            # 'floor_z' (1.30 m medido); el laberinto se SUBE a esa altura (z_base) para
+            # apoyarse sobre ese piso. (Antes bajábamos el warehouse y el grid lo enterraba.)
             tx, ty, tz = ax - 0.5 * (bb[0] + bb[3]), ay - 0.5 * (bb[1] + bb[4]), az - bb[2]
         else:
             tx, ty, tz = ax, ay, az
         UsdGeom.Xformable(stage.GetPrimAtPath(p)).AddTranslateOp().Set(Gf.Vec3d(tx, ty, tz))
         # spawn_on: el robot irá ENCIMA de este asset (xy = su centro). La altura es
         # "spawn_z" (sobre el piso del asset) si se da; si no, el tope (bbox).
-        if e.get("spawn_on") and e.get("center", True):
+        # En un --world (laberinto) NO usamos spawn_on: el robot va en el laberinto, no
+        # sobre la plataforma del warehouse (que aquí es solo decorado/iluminación).
+        if e.get("spawn_on") and e.get("center", True) and not args.world:
             spawn_on_pose = (ax, ay, az + e.get("spawn_z", bb[5] - bb[2]))
         # colisión estática (malla de triángulos) + fricción, porque los assets
         # vienen sin colisión -> el robot los atravesaría.
         ncol = 0
-        if e.get("collision", True):
-            for q in Usd.PrimRange(stage.GetPrimAtPath(p)):
-                if q.GetTypeName() == "Mesh":
+        nhidden = 0
+        apply_col = e.get("collision", True) and not args.world
+        for q in Usd.PrimRange(stage.GetPrimAtPath(p)):
+            if q.GetTypeName() == "Mesh":
+                if args.no_roof:
+                    q_bb = compute_aabb(bbcache, q.GetPath(), include_children=False)
+                    if q_bb[2] > 3.5:
+                        UsdGeom.Imageable(q).MakeInvisible()
+                        nhidden += 1
+                        continue
+                
+                if apply_col:
                     UsdPhysics.CollisionAPI.Apply(q)
-                    UsdPhysics.MeshCollisionAPI.Apply(q).CreateApproximationAttr().Set("none")
+                    UsdPhysics.MeshCollisionAPI.Apply(q).CreateApproximationAttr().Set("convexDecomposition")
                     UsdShade.MaterialBindingAPI.Apply(q).Bind(
                         UsdShade.Material(stage.GetPrimAtPath(mat_path)),
                         bindingStrength=UsdShade.Tokens.weakerThanDescendants, materialPurpose="physics")
                     ncol += 1
+        if nhidden > 0:
+            print(f"[FIS] Ocultos {nhidden} pedazos altos del techo en {p} para ahorrar GPU", flush=True)
         _sz = (f"size=({bb[3]-bb[0]:.1f}x{bb[4]-bb[1]:.1f}x{bb[5]-bb[2]:.1f})"
                if e.get("center", True) else "")
         print(f"[FIS] USD extra: {os.path.basename(e['path'])} {_sz} -> trasl "
@@ -305,11 +381,22 @@ if args.gridmap:
 
 # --- ArUcos 3D (tabla blanca 4mm + negro extruido 0.6mm) + cubo objetivo ----
 if args.aruco:
-    from aruco3d import make_goal_cube, place_robot_marker
-    make_goal_cube(stage, "/World/CuboAruco", pose=(1.5, 0.0, 0.075), mat_path=mat_path)
-    _robot_root = "/" + str(prim_path).strip("/").split("/")[0]
-    place_robot_marker(stage, _robot_root + "/base_link", marker_id=4)
-    print("[FIS] ArUcos 3D: cubo objetivo + marcador ID4 en el techo del robot", flush=True)
+    from aruco3d import make_goal_cube, make_aruco3d
+    # cubo objetivo apoyado SOBRE la cara del piso (centro = piso_top + lado/2); antes a
+    # z=0.075 quedaba enterrado bajo el piso del laberinto (que no está en z=0).
+    _cube_z = _floor_top + 0.075
+    make_goal_cube(stage, "/World/CuboAruco", pose=(1.3, -1.3, _cube_z), mat_path=mat_path)
+    
+    # ArUco 2 (para el aterrizaje del dron) posicionado en (0, -1.4, _floor_top) 
+    # rotado -90 grados en Z (w=0.707, z=-0.707) para coincidir con Gazebo
+    make_aruco3d(stage, "/World/Aruco_2", marker_id=2, size_m=0.18, 
+                 pose=((0.0, -1.4, _floor_top), (0.707106, 0.0, 0.0, -0.707106)))
+    
+    # El marcador ID4 del techo NO se crea aquí: bajo la articulación /jetauto/base_link
+    # se posiciona bien (AABB ok) pero NO RENDERIZA (Isaac solo renderiza los prims que el
+    # import de URDF registró, no los añadidos después). Se crea como prim INDEPENDIENTE en
+    # /World tras el settle, a la pose de reposo del robot (estático durante la misión dron).
+    print(f"[FIS] ArUco cubo objetivo en z={_cube_z:.3f} (marcador ID4 -> /World tras settle)", flush=True)
 
 # --- 3) Grafo ROS2: clock + odom(GT físico) + TF + joint_states ------------
 og.Controller.edit(
@@ -444,7 +531,11 @@ if spawn_on_pose is not None:
         sx, sy, sz = rx, ry, zhint + 0.12
         print(f"[FIS] sin raycast: robot desde z={sz:.2f} (spawn_z={zhint:.2f})", flush=True)
 else:
-    sx, sy, sz = args.x, args.y, args.z
+    sx, sy = args.x, args.y
+    # En el laberinto: apoyar sobre la CARA del piso + 0.08 (spawn Gazebo). Si nace a
+    # z=0.05 bajo un piso con grosor, las ruedas quedan enterradas y la física no lo
+    # expulsa (penetración profunda) -> se veía "enterrado".
+    sz = (_floor_top + 0.08) if args.world == "laberinto" else args.z
 art.set_world_pose(position=np.array([sx, sy, sz]), orientation=_quat_yaw(args.yaw))
 
 # índices DOF de las 4 ruedas
@@ -476,6 +567,20 @@ for _ in range(60):
 _rz = float(art.get_world_pose()[0][2])
 print(f"[FIS] robot asentado en z={_rz:.3f} (contacto rueda ~{_rz - 0.00317:.3f})", flush=True)
 
+# Marcador ID4 del techo como prim INDEPENDIENTE en /World: bajo la articulación
+# /jetauto/base_link se posiciona bien (AABB correcto) pero NO RENDERIZA (Isaac solo
+# renderiza los prims que registró el import de URDF, no los añadidos después). El robot
+# está ESTÁTICO durante la misión del dron, así que el marcador va a su pose de reposo.
+#
+# (Eliminado a petición del usuario: ahora el ArUco va empotrado en el URDF del robot)
+# if args.aruco:
+#     from aruco3d import make_aruco3d
+#     _mk_x, _mk_y, _mk_z = float(sx), float(sy), _rz + 0.22
+#     make_aruco3d(stage, "/World/RobotMarker", 4, size_m=0.18,
+#                  pose=(_mk_x, _mk_y, _mk_z), mat_path=mat_path)
+#     simulation_app.update()
+#     print(f"[FIS] marcador ID4 -> /World/RobotMarker ({_mk_x:.2f},{_mk_y:.2f},{_mk_z:.3f})", flush=True)
+
 # --- recorder cenital opcional (no-fatal: si algo falla, la sim sigue) ----------
 rec = None
 if args.record:
@@ -498,23 +603,47 @@ if args.record:
         rec = None
 
 
-# --- dron Tello kinemático opcional (obedece /drone1/cmd_vel) -----------------
+# --- dron Tello kinemático: CREAR DESPUÉS de play ---------------------------
+# El objeto isaacsim Camera + get_rgba SOLO da frames si se crea con la timeline en PLAY
+# (creado antes de play, get_rgba sale None). Es lo opuesto al ROS2CameraHelper (querría
+# antes de play) — pero ese no publica datos para esta cámara de todos modos.
 drone = None
 if args.drone:
     from drone import IsaacDrone
     drone = IsaacDrone(stage, simulation_app, prim_path="/World/drone1",
-                       spawn=(args.x, args.y, 0.1), mat_path=mat_path)
-    drone.post_play_init()                            # crea Camera+render product (timeline ya en play)
+                       spawn=(args.x, args.y, _floor_top + 0.1), mat_path=mat_path,
+                       z0=_floor_top)   # odom/altitud RELATIVA al piso (que subió sobre el warehouse)
+    drone.post_play_init()                            # Camera + get_rgba (timeline ya en play)
     drone.takeoff()                                   # sube a z=2.2 (gate z>0.8 del position_controller)
 
 
-# --- HUD de rendimiento opcional (FPS / RTF / GPU / memoria) -----------------
+# --- HUD de stats del viewport (FPS/GPU/mem) SIEMPRE en GUI -------------------
+# Como en una ventana de Isaac normal: el SimulationApp scripted arranca con
+# display_options=3094 (oculta el HUD); lo activamos en caliente en cuanto hay GUI,
+# sin necesidad de --perf. (El usuario reportó "no me salen las estadísticas".)
+if not args.headless:
+    try:
+        from perf_hud import enable_stats_overlay
+        enable_stats_overlay()
+        print("[PERF] HUD de stats del viewport activado (FPS/Device/Mem)", flush=True)
+    except Exception as _e:
+        print(f"[PERF] no pude activar el HUD de stats ({_e})", flush=True)
+
+# --- HUD de rendimiento: FPS + memoria -----------------------------------------
+# En GUI el HUD NATIVO de Isaac (activado arriba por enable_stats_overlay: FPS + Device
+# Memory + Host Memory + Resolution en la esquina del viewport, igual que al abrir Isaac
+# normal) cubre lo que pidió el usuario. PerfMonitor queda como complemento de CONSOLA/LOG:
+# "[PERF] fps=.. rtf=.. gpu=..% gmem=..MB ram=..%" cada ~1s (+ RTF, que el HUD nativo no da)
+# y, con --perf, lo publica en /isaac/perf (ROS). SIN ventanita propia (viewport_overlay=False).
 perf = None
-if args.perf:
-    from perf_hud import PerfMonitor, enable_stats_overlay
-    if not args.headless:
-        enable_stats_overlay()                        # overlay de stats del viewport (GUI)
-    perf = PerfMonitor(simulation_app, timeline=timeline, publish_ros=True, ros_node=node)
+try:
+    from perf_hud import PerfMonitor
+    perf = PerfMonitor(simulation_app, timeline=timeline,
+                       publish_ros=args.perf, ros_node=node,
+                       viewport_overlay=False)
+    print("[PERF] FPS + memoria: HUD nativo (GUI) + línea [PERF] en consola", flush=True)
+except Exception as _e:
+    print(f"[PERF] PerfMonitor off ({_e})", flush=True)
 
 # --- rig multicámara opcional (wheel/scene/chase) + grabación a disco --------
 CAMS = {}
@@ -573,20 +702,52 @@ def _rec_step():
 
 
 print("[FIS] Listo. /cmd_vel mueve el robot POR FRICCIÓN (ruedas+rodillos).")
+# --- RTF: DESACOPLE física/render ---------------------------------------------
+# El cuello del RTF es el RENDER (~65 ms), NO la física (~5 ms). Con --render-every N
+# damos 1 render + (N-1) pasos de FÍSICA-SOLA por ciclo (omni.physx.update_simulation,
+# ~5 ms, sin render) -> el RTF sube mucho (N=1 => idéntico a antes; N≈10-12 => RTF ~0.8).
+# La cámara del dron (get_rgba) solo se necesita en los waypoints, así que se captura SOLO
+# en pasos de render. /clock/odom/tf (grafo OnPlaybackTick) tickean en los renders; el dron
+# integra su pose en Python con _phys_dt fijo (consistente con la física). El nav usa N=1
+# (lidar+odom continuos); la misión del dron usa N alto (la cámara es esporádica).
+import time as _time
+import omni.timeline as _otl
+from omni.physx import get_physx_interface
+_perf = _time.perf_counter
+_tl = _otl.get_timeline_interface()
+_physx = get_physx_interface()
+_re = max(1, int(args.render_every))
+_phys_dt = 1.0 / (args.phys_hz if args.phys_hz > 0 else 120.0)
+_sim_t = float(_tl.get_current_time())
+_it = 0; _t_last = _perf(); _last_cap = 0.0
+print(f"[RTF] render-every={_re}  (1 render + {_re-1} física-sola por ciclo)  phys_dt={_phys_dt*1e3:.1f}ms")
 try:
     while simulation_app.is_running():
         rclpy.spin_once(node, timeout_sec=0.0)
         if drone is not None:
             drone.spin_once()
-            drone.step(1.0 / 120.0)
         targets = ik(cmd["vx"], cmd["vy"], cmd["wz"])
         art.apply_action(ArticulationAction(joint_velocities=targets,
                                             joint_indices=np.array(wheel_idx)))
-        simulation_app.update()
+        _render = (_it % _re == 0)
+        if _render:
+            simulation_app.update()                          # física + render + grafo ROS + cámara SDG
+        else:
+            _physx.update_simulation(_phys_dt, _sim_t)       # SOLO física (~5 ms, sin render)
+            _physx.update_transformations(False, True)       # empuja poses a USD (odom/visual)
+        _sim_t += _phys_dt
+        _it += 1
         if drone is not None:
+            drone.step(_phys_dt)                            # dt fijo, en lockstep con la física
             drone.publish_odom()
+            if _render and (_perf() - _last_cap) > 0.30:    # cámara SOLO en pasos de render
+                speed = sum(abs(v) for v in drone._world_vel)
+                # Publicar si está estable (v < 0.25) o si ya pasaron 2 segundos (fallback)
+                if speed < 0.25 or (_perf() - _last_cap) > 2.0:
+                    drone.publish_camera()
+                    _last_cap = _perf()
         if perf is not None:
-            perf.tick()
+            perf.tick(sim_time=_sim_t)                       # RTF con el acumulador (timeline no avanza en física-sola)
         if CAMS and _cams is not None:
             _cams.update_chase_camera(stage, CAMS)
         if cam_rec is not None:

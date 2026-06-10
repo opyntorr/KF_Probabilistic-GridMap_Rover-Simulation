@@ -7,8 +7,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 #   - ros2_control + controladores (las 4 ruedas mecanum del JetAuto)
 #   - xacro (URDF del robot)
 #   - numpy / matplotlib / scipy (los nodos KF y de mapa + las versiones Python puras)
-# Se quito: nav2, slam_toolbox, apriltag, vision_msgs, cv_bridge, robot_localization,
-#   imu_filter_madgwick, joy/teleop, rqt/rviz-imu, el SDK de YDLidar y el driver del Tello.
+# Paquetes restaurados para soportar la simulación completa (Dron + Carrito):
 RUN apt-get update && apt-get install -y \
     ros-humble-ros-ign-gazebo \
     ros-humble-ros-ign-bridge \
@@ -21,13 +20,32 @@ RUN apt-get update && apt-get install -y \
     ros-humble-velocity-controllers \
     ros-humble-gz-ros2-control \
     ros-humble-ign-ros2-control \
+    ros-humble-nav2-bringup \
+    ros-humble-navigation2 \
+    ros-humble-slam-toolbox \
+    ros-humble-robot-localization \
+    ros-humble-imu-filter-madgwick \
+    ros-humble-apriltag-ros \
+    ros-humble-apriltag-msgs \
+    ros-humble-cv-bridge \
+    ros-humble-vision-msgs \
+    ros-humble-teleop-twist-joy \
+    ros-humble-joy \
+    ros-humble-urdf-tutorial \
+    ros-humble-rqt-image-view \
     python3-pip \
     python3-numpy \
     python3-matplotlib \
     python3-scipy \
+    python3-rosdep \
     nano \
     tmux \
     git \
+    ros-humble-rmw-cyclonedds-cpp \
+    ros-humble-tf-transformations \
+    python3-transforms3d \
+    python3-protobuf \
+    protobuf-compiler \
     && rm -rf /var/lib/apt/lists/*
 
 # Configurar variables de entorno para NVIDIA

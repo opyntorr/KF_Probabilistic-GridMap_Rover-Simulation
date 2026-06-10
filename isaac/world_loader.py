@@ -44,18 +44,45 @@ MAZE_SCALE = 0.001
 #   lineas diffuse 0.03 0.28 0.70   (solo visual, offset y=-0.02027)
 #   jaula  diffuse 0.85 0.85 0.85   (la jaula alta ~4.6 m; jaula.stl ~3.3 MB)
 #   cajas  diffuse 1.0 0.85 0.0
+# MATERIALES REALES (lo pidió el usuario), aplicados como OmniPBR con COLOR FIJO = Gazebo
+# + un mapa NORMAL de relieve proyectado por triplanar (las STL NO traen UVs). El color
+# diffuse NO cambia -> el stitching por color del dron sigue funcionando. Lo que cambia es
+# el "material": rugosidad/brillo + micro-relieve. Campo "mat": (roughness, metallic, normal
+# key | None, bump_factor, texture_scale). 'normal' key -> _NORMALS abajo.
+#   piso   = FOMI (espuma EVA): mate total, micro-stipple
+#   paredes= MDF: mate, ligero grano de fibra
+#   lineas = CINTA DE PAPEL azul: mate, fibra muy sutil (solo visual)
+#   jaula  = PINTURA BLANCA (esmalte): semi-brillo, lisa (sin normal)
+#   cajas  = forradas de PAPEL: mate, fibra de cartón
+_NORMALS = {
+    "wood":  "Base/Wood/Timber/Timber_Normal.png",                       # grano MDF
+    "paper": "vMaterials_2/Paper/textures/cardboard_new_01_norm.jpg",    # fibra papel/cartón
+    "foam":  "Base/Carpet/Carpet_Charcoal/Carpet_Charcoal_Normal.png",  # stipple espuma
+}
 _MAZE_PIECES = [
     {"name": "piso", "stl": "piso.stl", "collision": True,
-     "color": (0.08, 0.08, 0.09), "offset": (0.0, 0.0, 0.0)},
+     "color": (0.08, 0.08, 0.09), "offset": (0.0, 0.0, 0.0),
+     "mat": (0.96, 0.0, "foam", 0.5, 4.0)},                  # fomi: ultra-mate + stipple FINO (scale↑)
     {"name": "paredes", "stl": "paredes.stl", "collision": True,
-     "color": (0.55, 0.38, 0.20), "offset": (0.0, 0.0, 0.0)},
+     "color": (0.55, 0.38, 0.20), "offset": (0.0, 0.0, 0.0),
+     "mat": (0.78, 0.0, "wood", 0.35, 1.0)},                 # MDF: mate + grano fino
     {"name": "lineas", "stl": "lineas.stl", "collision": False,
-     "color": (0.03, 0.28, 0.70), "offset": (0.0, -0.02027, 0.0)},
-    {"name": "jaula", "stl": "jaula.stl", "collision": True,
-     "color": (0.85, 0.85, 0.85), "offset": (0.0, 0.0, 0.0)},
+     "color": (0.03, 0.28, 0.70), "offset": (0.0, -0.02027, 0.0),
+     "mat": (0.90, 0.0, "paper", 0.32, 5.0)},                # cinta de papel azul: más rugosa + fibra fina
+    # jaula = 67k triángulos (la malla MÁS pesada con diferencia). Es la reja EXTERIOR;
+    # el robot navega DENTRO del laberinto (la RRT la marca como ocupada), así que NUNCA
+    # la toca -> colisión OFF (solo visual, como lineas) ahorra colisión de 67k triángulos.
+    {"name": "jaula", "stl": "jaula_opt.stl", "collision": False,
+     "color": (0.85, 0.85, 0.85), "offset": (0.0, 0.0, 0.0),
+     "mat": (0.45, 0.0, None, 0.0, 1.0)},                    # pintura blanca esmalte (lisa)
     {"name": "cajas", "stl": "cajasRecientes.stl", "collision": True,
-     "color": (1.0, 0.85, 0.0), "offset": (0.0, 0.0, 0.0)},
+     "color": (1.0, 0.85, 0.0), "offset": (0.0, 0.0, 0.0),
+     "mat": (0.93, 0.0, "paper", 0.5, 3.0)},                 # papel forrado: más rugoso + fibra marcada
 ]
+
+# OmniPBR + biblioteca de normales (rutas absolutas, resueltas al construir el material).
+_MATERIALS_ROOT = "/home/opyntorr/isaacsim_assets/Assets/Isaac/4.5/NVIDIA/Materials"
+_OMNIPBR_MDL = "/home/opyntorr/isaacsim/kit/mdl/core/Base/OmniPBR.mdl"
 
 
 # ---------------------------------------------------------------------------
@@ -151,15 +178,48 @@ def ensure_maze_usds(simulation_app, mesh_dir=_MESH_DIR, usd_cache=_USD_CACHE):
 # ---------------------------------------------------------------------------
 # helper: material UsdPreviewSurface de color plano (para fidelidad de render).
 # ---------------------------------------------------------------------------
-def _make_flat_material(stage, mat_root, name, rgb):
-    """Crea un UsdPreviewSurface mate de color rgb bajo mat_root/<name>_mat.
+def _make_flat_material(stage, mat_root, name, rgb, mat=None):
+    """Crea el material de la pieza bajo mat_root/<name>_mat.
 
-    Ref: patrón UsdShade estándar (mismo estilo que jetauto_materials.py usa para
-    los materiales del robot). Roughness alto + metallic 0 = mate (= pbr de Gazebo).
+    Si `mat` (roughness, metallic, normal_key|None, bump, scale) viene dado, crea un
+    material MDL **OmniPBR** con COLOR FIJO `rgb` (= Gazebo, stitching-safe) + un mapa
+    NORMAL de relieve proyectado por TRIPLANAR (project_uvw, world-space) — las STL no
+    traen UVs, así que el triplanar es la única vía. El diffuse NO cambia: solo añade
+    micro-relieve + la rugosidad/brillo del material real (MDF/papel/fomi/pintura).
+
+    Si OmniPBR no estuviera disponible (o mat=None), cae a un UsdPreviewSurface mate del
+    mismo color (= comportamiento previo). En ambos casos también se fija DisplayColor.
     """
+    import os as _os
+
     from pxr import Gf, Sdf, UsdShade
     mpath = f"{mat_root}/{name}_mat"
     material = UsdShade.Material.Define(stage, mpath)
+
+    if mat is not None and _os.path.exists(_OMNIPBR_MDL):
+        rough, metal, nkey, bump, scale = mat
+        try:
+            shader = UsdShade.Shader.Define(stage, f"{mpath}/Shader")
+            shader.CreateImplementationSourceAttr(UsdShade.Tokens.sourceAsset)
+            shader.SetSourceAsset(Sdf.AssetPath(_OMNIPBR_MDL), "mdl")
+            shader.SetSourceAssetSubIdentifier("OmniPBR", "mdl")
+            shader.CreateInput("diffuse_color_constant", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(*rgb))
+            shader.CreateInput("reflection_roughness_constant", Sdf.ValueTypeNames.Float).Set(float(rough))
+            shader.CreateInput("metallic_constant", Sdf.ValueTypeNames.Float).Set(float(metal))
+            nrel = _NORMALS.get(nkey) if nkey else None
+            npath = _os.path.join(_MATERIALS_ROOT, nrel) if nrel else None
+            if npath and _os.path.exists(npath):
+                shader.CreateInput("normalmap_texture", Sdf.ValueTypeNames.Asset).Set(Sdf.AssetPath(npath))
+                shader.CreateInput("project_uvw", Sdf.ValueTypeNames.Bool).Set(True)      # sin UVs en STL
+                shader.CreateInput("world_or_object", Sdf.ValueTypeNames.Bool).Set(True)  # escala real (world)
+                shader.CreateInput("texture_scale", Sdf.ValueTypeNames.Float2).Set(Gf.Vec2f(scale, scale))
+                shader.CreateInput("bump_factor", Sdf.ValueTypeNames.Float).Set(float(bump))
+            material.CreateSurfaceOutput("mdl").ConnectToSource(shader.ConnectableAPI(), "out")
+            return material
+        except Exception as _e:  # noqa: BLE001 — cae a UsdPreviewSurface
+            print(f"[WORLD] OmniPBR falló en {name} ({_e}); uso material plano", flush=True)
+
+    # Fallback: UsdPreviewSurface mate del mismo color (= comportamiento previo).
     shader = UsdShade.Shader.Define(stage, f"{mpath}/Shader")
     shader.CreateIdAttr("UsdPreviewSurface")
     shader.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(*rgb))
@@ -174,7 +234,7 @@ def _make_flat_material(stage, mat_root, name, rgb):
 # ---------------------------------------------------------------------------
 def load_laberinto(stage, simulation_app, mat_path="/physicsMaterial",
                    parent="/World/Maze", mesh_dir=_MESH_DIR, usd_cache=_USD_CACHE,
-                   scale=MAZE_SCALE):
+                   scale=MAZE_SCALE, z_base=0.0):
     """Carga el laberinto Gazebo en `stage` por referencia-USD + colisión de malla 'none'.
 
     Espejo del bloque EXTRA_USDS / 'laberinto' de scene_mecanum.py:
@@ -238,7 +298,7 @@ def load_laberinto(stage, simulation_app, mat_path="/physicsMaterial",
     for piece in _MAZE_PIECES:
         name = piece["name"]
         ppath = piece_paths[name]
-        flat = _make_flat_material(stage, mat_root, name, piece["color"])
+        flat = _make_flat_material(stage, mat_root, name, piece["color"], piece.get("mat"))
         ncol = 0
         for q in Usd.PrimRange(stage.GetPrimAtPath(ppath)):
             if q.GetTypeName() != "Mesh":
@@ -277,16 +337,29 @@ def load_laberinto(stage, simulation_app, mat_path="/physicsMaterial",
     bb = compute_aabb(create_bbox_cache(), parent, include_children=True)  # [xmin..zmax] YA rotado
     cx, cy = 0.5 * (bb[0] + bb[3]), 0.5 * (bb[1] + bb[4])
     _Mfull = Gf.Matrix4d(_Mrot)
-    _Mfull.SetTranslateOnly(Gf.Vec3d(-cx, -cy, -bb[2]))   # rotación + centrado xy + piso z=0
+    # rotación + centrado xy + min-z global a z_base (z_base>0 lo sube p.ej. sobre el piso
+    # interior del warehouse, en vez de enterrar el warehouse bajo el grid).
+    _Mfull.SetTranslateOnly(Gf.Vec3d(-cx, -cy, -bb[2] + z_base))
     _root_op.Set(_Mfull)
     simulation_app.update()
 
     # bbox YA centrado (para que el llamador sepa el footprint final).
     bb2 = compute_aabb(create_bbox_cache(), parent, include_children=True)
+    # CARA SUPERIOR del piso (no z=0): el auto-centrado pone el min-z GLOBAL del laberinto
+    # en 0, pero el piso tiene grosor, así que su cara superior queda en z>0. El carro y el
+    # cubo deben apoyarse AHÍ (si se colocan a z=0 quedan ENTERRADOS bajo el piso).
+    floor_top = float(bb2[2])
+    try:
+        _pp = piece_paths.get("piso")
+        if _pp:
+            _pbb = compute_aabb(create_bbox_cache(), _pp, include_children=True)
+            floor_top = float(_pbb[5])
+    except Exception as _e:  # noqa: BLE001
+        print(f"[WORLD] no pude medir la cara del piso ({_e}); uso z=0", flush=True)
     print(f"[WORLD] laberinto centrado: xy=({bb2[3]-bb2[0]:.2f}x{bb2[4]-bb2[1]:.2f}) "
-          f"alto={bb2[5]-bb2[2]:.2f}  piso~z=0  ({total_col} mallas con colisión 'none')",
-          flush=True)
-    return parent, bb2
+          f"alto={bb2[5]-bb2[2]:.2f}  piso_top={floor_top:.3f}  "
+          f"({total_col} mallas con colisión 'none')", flush=True)
+    return parent, bb2, floor_top
 
 
 # ---------------------------------------------------------------------------

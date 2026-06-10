@@ -1,0 +1,35 @@
+# Parámetros intrínsecos de la cámara inferior (espejo hacia el suelo)
+# Calibrados con tablero ChArUco sobre el Tello real con el espejo físico montado.
+# Fuente: camera_calibration/calibration_output/tello_calibration.yaml
+# RMS de reproyección: 0.5737 px
+
+image_width: 960
+image_height: 720
+camera_name: camera_down
+camera_matrix:
+  rows: 3
+  cols: 3
+  data: [944.1845123011856, 0.0, 476.6865851947961,
+         0.0, 957.6179513966647, 369.825090183153,
+         0.0, 0.0, 1.0]
+distortion_model: plumb_bob
+distortion_coefficients:
+  rows: 1
+  cols: 5
+  data: [0.03482204955311637, -0.1887592814782258,
+         0.0055684236404767605, 0.0014525257662545907,
+         0.5448687642771689]
+rectification_matrix:
+  rows: 3
+  cols: 3
+  data: [1.0, 0.0, 0.0,
+         0.0, 1.0, 0.0,
+         0.0, 0.0, 1.0]
+# Matriz de proyección P = [fx' 0 cx' 0 ; 0 fy' cy' 0 ; 0 0 1 0]
+# Sin rectificación estéreo: fx'=fx, fy'=fy, cx'=cx, cy'=cy, Tx=Ty=0
+projection_matrix:
+  rows: 3
+  cols: 4
+  data: [944.1845123011856, 0.0, 476.6865851947961, 0.0,
+         0.0, 957.6179513966647, 369.825090183153, 0.0,
+         0.0, 0.0, 1.0, 0.0]

@@ -1,0 +1,28 @@
+aruco_1:
+  dist: 194.25064349957762
+  id: 1
+  source_img: wp_11.jpg
+  world_x: 0.4246991390196161
+  world_y: -0.4761891341219352
+  yaw_world: 1.5707963267948966
+aruco_2:
+  dist: 45.55902764546232
+  id: 2
+  source_img: wp_14.jpg
+  world_x: -0.22139585479495313
+  world_y: -1.630727555929907
+  yaw_world: 0.03123983343026815
+carrito:
+  dist: 12.36931687685298
+  id: 4
+  source_img: wp_00.jpg
+  world_x: -1.4597765623377914
+  world_y: 1.400614094883671
+  yaw_world: 3.1130289957510335
+meta:
+  dist: 67.1830521783582
+  id: 0
+  source_img: wp_12.jpg
+  world_x: 1.3301242325616895
+  world_y: -0.961359249914037
+  yaw_world: -1.6052654277944045

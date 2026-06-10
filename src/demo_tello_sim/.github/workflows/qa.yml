@@ -1,0 +1,48 @@
+name: qa
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install lint deps
+        run: pip install flake8 pydocstyle
+
+      - name: flake8
+        run: flake8 --config src/tello_control_pos/setup.cfg src/tello_control_pos
+
+      - name: pydocstyle
+        run: pydocstyle src/tello_control_pos
+
+  unit:
+    runs-on: ubuntu-22.04
+    container: ros:humble-ros-base
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install rosdeps
+        run: |
+          apt-get update
+          rosdep update
+          rosdep install --from-paths src/tello_control_pos -y --ignore-src --rosdistro humble
+
+      - name: Build
+        shell: bash
+        run: |
+          source /opt/ros/humble/setup.bash
+          colcon build --packages-select tello_control_pos --event-handlers console_direct+
+
+      - name: Test
+        shell: bash
+        run: |
+          source /opt/ros/humble/setup.bash
+          source install/setup.bash
+          colcon test --packages-select tello_control_pos --event-handlers console_direct+
+          colcon test-result --verbose

@@ -231,7 +231,7 @@ CELL_T = 0.0006     # extrusión de las celdas negras (0.6 mm)
 
 
 def make_aruco3d(stage, prim_path, marker_id, size_m=0.18, pose=None,
-                 mat_path=None, collision=False):
+                 mat_path=None, collision=False, quiet=1.0):
     """Construye un marcador ArUco 3D PROCEDURAL bajo `prim_path` (un Xform raíz).
 
     Geometría (réplica del 3D-impreso):
@@ -267,18 +267,21 @@ def make_aruco3d(stage, prim_path, marker_id, size_m=0.18, pose=None,
 
     # 2) celdas negras EXTRUIDAS encima. Coordenadas: celda (r,c) -> centro xy.
     #    fila r=0 arriba en la imagen -> +y; columna c=0 a la izquierda -> -x.
-    cell = size_m / float(n)
-    half = size_m / 2.0
+    # QUIET ZONE: el patrón n×n se mete DENTRO del tablero (size_m) dejando `quiet`
+    # celdas de margen blanco por lado. ArUco necesita >=1 celda de borde blanco para
+    # detectar; sin esto (patrón a ras del borde) la detección falla (lo del cubo viejo).
+    eff = size_m / (float(n) + 2.0 * float(quiet))  # tamaño de celda CON quiet zone
+    pat_half = (n / 2.0) * eff                       # media anchura del patrón inscrito
     z_cell = BOARD_T + CELL_T / 2.0                # cara inferior del cubito en z=BOARD_T
     n_black = 0
     for r in range(n):
         for c in range(n):
             if not grid[r, c]:
                 continue
-            cx = -half + (c + 0.5) * cell
-            cy = half - (r + 0.5) * cell
+            cx = -pat_half + (c + 0.5) * eff
+            cy = pat_half - (r + 0.5) * eff
             _box(stage, f"{prim_path}/cell_{r}_{c}",
-                 cell, cell, CELL_T, (cx, cy, z_cell),
+                 eff, eff, CELL_T, (cx, cy, z_cell),
                  black, collision=False, mat_path=mat_path)
             n_black += 1
 

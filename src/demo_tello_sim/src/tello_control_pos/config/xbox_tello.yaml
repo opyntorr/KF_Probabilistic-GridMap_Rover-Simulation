@@ -1,0 +1,33 @@
+tello_joy_teleop:
+  ros__parameters:
+    # --- Ejes del stick (Xbox One S - verificado) ---
+    axis_x: 0       # Stick izq vertical   -> adelante/atras
+    axis_y: 1       # Stick izq horizontal -> lateral
+    axis_z: 3       # Fallback Z si trigger_z deshabilitado (RS vertical)
+    axis_yaw: 2     # Stick der horizontal -> girar
+
+    # --- Botones ---
+    takeoff_button: 0    # A
+    land_button: 1       # B
+    emergency_button: 2  # X
+    yaw_left_button: -1  # -1 = deshabilitado (yaw via stick der)
+    yaw_right_button: -1 # -1 = deshabilitado (yaw via stick der)
+
+    # --- Gatillos para Z (reposo=1.0, presionado baja hacia -1.0) ---
+    # vz = (rt - lt) / 2  →  0 en reposo, +1 al presionar LT, -1 al presionar RT
+    trigger_z_up_axis: 5    # RT - subir (presionar RT = sube)
+    trigger_z_down_axis: 4  # LT - bajar (presionar LT = baja)
+
+    # --- Velocidades maximas ---
+    max_linear_vel: 0.5  # m/s para XY
+    max_z_vel: 0.4       # m/s para Z
+    max_yaw_vel: 1.0     # rad/s para yaw
+
+    # --- Ajustes ---
+    velocity_scale: 1.0  # 1.0 para simulacion, 100.0 para dron real
+    deadzone: 0.20       # zona muerta del stick (evita drift del joystick)
+    takeoff_mode: 'service'  # 'service' para sim, 'topic' para real
+
+    # --- Foto (solo real; -1 = deshabilitado) ---
+    photo_button: -1         # Y=3; el launch real lo sobreescribe a 3
+    photo_save_dir: '/tmp/tello_fotos'
