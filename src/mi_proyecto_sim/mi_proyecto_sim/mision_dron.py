@@ -526,7 +526,8 @@ class MisionDron(Node):
         # Stitcher Pose (C++) / (Python port)
         camera_yaml = STITCH_POSICION_PKG_DIR / 'config' / 'camera_tello_sim.yaml'
         # En simulación, OptiTrack es perfecto. No usamos tape-snap ni correcciones de imagen que introducen error artificial.
-        cmd = ['python3', '-m', 'mision.stitch_pose', '--input', str(self.fotos_dir), '--output', str(stitch_out), '--camera', str(camera_yaml), '--skip-refine']
+        # Usamos seam_cut para eliminar el efecto fantasma (paralaje) en objetos altos.
+        cmd = ['python3', '-m', 'mision.stitch_pose', '--input', str(self.fotos_dir), '--output', str(stitch_out), '--camera', str(camera_yaml), '--blend-mode', 'seam_cut']
         self.get_logger().info(f'Stitching: {" ".join(cmd)} (cwd={STITCH_POSICION_PKG_DIR})')
         result = subprocess.run(
             cmd, capture_output=True, text=True,

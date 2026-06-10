@@ -191,7 +191,7 @@ def main():
 
     # 4) Phase B: sliding-window refinement.
     if not args.skip_refine:
-        rcfg = RefineConfig(search_radius_px=args.search_radius_px)
+        rcfg = RefineConfig(search_radius_px=args.search_radius_px, min_score=0.03)
         print(f"[stitch_pose] Refining {len(placed)} tiles with phaseCorrelate "
               f"(±{rcfg.search_radius_px}px search)...")
         # Grayscale of CLAHE image: includes both tape lines and aperiodic floor
